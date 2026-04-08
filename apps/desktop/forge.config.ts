@@ -407,7 +407,15 @@ const config: ForgeConfig = {
     icon: "./assets/logo", // Path to your icon file
     appBundleId: "com.amical.desktop", // Proper bundle ID
     extraResource: [
-      `${process.platform === "win32" ? "../../packages/native-helpers/windows-helper/bin" : "../../packages/native-helpers/swift-helper/bin"}`,
+      // Native helper binaries (platform-specific)
+      ...(process.platform === "linux"
+        ? [
+            "../../packages/native-helpers/linux-helper-ts/bin",
+            "../../packages/native-helpers/linux-helper-ts/dist",
+          ]
+        : [
+            `../../packages/native-helpers/${process.platform === "win32" ? "windows-helper" : "swift-helper"}/bin`,
+          ]),
       "./src/db/migrations",
       // Only include the platform-specific node binary
       `./node-binaries/${process.platform}-${process.arch}/node${
@@ -565,8 +573,20 @@ const config: ForgeConfig = {
       },
       ["darwin"],
     ),
-    new MakerRpm({}),
-    new MakerDeb({}),
+    new MakerRpm({
+      options: {
+        categories: ["Utility", "Audio"],
+        description: "AI-powered dictation and note-taking",
+      },
+    }),
+    new MakerDeb({
+      options: {
+        categories: ["Utility", "Audio"],
+        description: "AI-powered dictation and note-taking",
+        depends: ["libgtk-3-0", "libnotify4", "libnss3", "libxss1", "libsecret-1-0"],
+        recommends: ["wl-clipboard", "ydotool"],
+      },
+    }),
   ],
   plugins: [
     new VitePlugin({

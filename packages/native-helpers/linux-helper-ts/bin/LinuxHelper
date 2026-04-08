@@ -1,3 +1,14 @@
 #!/bin/sh
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-exec node "$SCRIPT_DIR/../dist/main.js" "$@"
+
+# When packaged, resources/bin/LinuxHelper runs with bundled node at resources/node
+# When in development, use system node
+if [ -f "$SCRIPT_DIR/../node" ]; then
+  NODE_BIN="$SCRIPT_DIR/../node"
+elif [ -f "$SCRIPT_DIR/../../node" ]; then
+  NODE_BIN="$SCRIPT_DIR/../../node"
+else
+  NODE_BIN="node"
+fi
+
+exec "$NODE_BIN" "$SCRIPT_DIR/../dist/main.js" "$@"

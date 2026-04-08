@@ -14,7 +14,7 @@ on:
 
 jobs:
   build:
-    name: Build ${{ matrix.os == 'macos' && 'macOS' || 'Windows' }} (${{ matrix.arch }})
+    name: Build ${{ matrix.os == 'macos' && 'macOS' || matrix.os == 'linux' && 'Linux' || 'Windows' }} (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
@@ -28,6 +28,9 @@ jobs:
           - os: windows
             arch: x64
             runner: windows-2025
+          - os: linux
+            arch: x64
+            runner: ubuntu-24.04
 
     steps:
       - name: Checkout code
@@ -195,6 +198,53 @@ jobs:
           echo "Building Windows x64 PR artifacts"
           pnpm make:windows
 
+      - name: Install Linux build dependencies
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg fakeroot rpm
+
+      - name: Build Linux helper
+        if: matrix.os == 'linux'
+        run: |
+          cd packages/native-helpers/linux-helper-ts
+          npm install
+          npm run build
+
+      - name: Build artifacts (Linux release)
+        if: matrix.os == 'linux' && github.event_name != 'pull_request'
+        working-directory: apps/desktop
+        env:
+          POSTHOG_HOST: https://app.posthog.com
+          TELEMETRY_ENABLED: true
+          POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+          FEEDBACK_SURVEY_ID: ${{ secrets.FEEDBACK_SURVEY_ID }}
+          AUTH_CLIENT_ID: ${{ secrets.AUTH_CLIENT_ID }}
+          AUTHORIZATION_ENDPOINT: ${{ secrets.AUTHORIZATION_ENDPOINT }}
+          AUTH_TOKEN_ENDPOINT: ${{ secrets.AUTH_TOKEN_ENDPOINT }}
+          API_ENDPOINT: ${{ secrets.API_ENDPOINT }}
+          AUTH_REDIRECT_URI: ${{ secrets.AUTH_REDIRECT_URI }}
+        run: |
+          echo "Building Linux x64 artifacts"
+          pnpm make:linux
+
+      - name: Build artifacts (Linux PR)
+        if: matrix.os == 'linux' && github.event_name == 'pull_request'
+        working-directory: apps/desktop
+        env:
+          TELEMETRY_ENABLED: "false"
+          POSTHOG_HOST: https://app.posthog.com
+          POSTHOG_API_KEY: ""
+          FEEDBACK_SURVEY_ID: ""
+          AUTH_CLIENT_ID: ""
+          AUTHORIZATION_ENDPOINT: ""
+          AUTH_TOKEN_ENDPOINT: ""
+          API_ENDPOINT: ""
+          AUTH_REDIRECT_URI: ""
+        run: |
+          echo "Building Linux x64 PR artifacts"
+          pnpm make:linux
+
       - name: Get version from package.json
         id: package_version
         working-directory: apps/desktop
@@ -239,6 +289,15 @@ jobs:
             apps/desktop/out/make/squirrel.windows/${{ matrix.arch }}/Amical-windows-${{ matrix.arch }}.exe
             apps/desktop/out/make/squirrel.windows/${{ matrix.arch }}/*.nupkg
             apps/desktop/out/make/squirrel.windows/${{ matrix.arch }}/RELEASES
+
+      - name: Upload artifacts (Linux)
+        if: matrix.os == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.arch }}
+          path: |
+            apps/desktop/out/make/deb/${{ matrix.arch }}/*.deb
+            apps/desktop/out/make/rpm/${{ matrix.arch }}/*.rpm
 
   release:
     name: Create Release
@@ -425,6 +484,10 @@ jobs:
             echo "#### Windows"
             echo "- **Windows (x64)**: Download the .exe installer for 64-bit Windows"
             echo ""
+            echo "#### Linux"
+            echo "- **Ubuntu/Debian (x64)**: Download the .deb package"
+            echo "- **Fedora/RHEL (x64)**: Download the .rpm package"
+            echo ""
             echo "### Installation"
             echo ""
             echo "**macOS**:"
@@ -435,6 +498,11 @@ jobs:
             echo "- Download and run the .exe installer"
             echo "- Follow the installation wizard"
             echo "- The app will be installed to your user AppData folder and a shortcut will be created"
+            echo ""
+            echo "**Linux (Ubuntu 24.04+)**:"
+            echo "- Install: \`sudo dpkg -i amical_*.deb\`"
+            echo "- Install dependencies: \`sudo apt install -y wl-clipboard ydotool\`"
+            echo "- Add user to input group: \`sudo usermod -aG input \$USER\` (log out and back in)"
             echo ""
             echo "The ZIP files are primarily for automatic updates. We recommend using the DMG files for initial installation on macOS."
           } > release-notes.md
@@ -564,5 +632,7 @@ jobs:
             artifacts/windows-x64/*.exe
             artifacts/windows-x64/*.nupkg
             artifacts/windows-x64/RELEASES
+            artifacts/linux-x64/*.deb
+            artifacts/linux-x64/*.rpm
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
