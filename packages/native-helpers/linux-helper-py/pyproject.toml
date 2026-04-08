@@ -1,0 +1,8 @@
+[project]
+name = "amical-linux-helper"
+version = "1.0.0"
+requires-python = ">=3.10"
+description = "Linux native helper for Amical dictation app (Ubuntu 24.04 / GNOME / Wayland)"
+
+[project.scripts]
+linux-helper = "linux_helper.__main__:main"

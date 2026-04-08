@@ -1,0 +1,2 @@
+# No external dependencies required for Phase 1
+# All functionality uses Python stdlib + system commands (wl-copy, ydotool, pactl, gdbus)

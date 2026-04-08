@@ -1,0 +1,16 @@
+{
+  "name": "@amical/linux-helper-ts",
+  "version": "1.0.0",
+  "private": true,
+  "os": [
+    "linux"
+  ],
+  "scripts": {
+    "build": "tsc && chmod +x bin/LinuxHelper",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.12",
+    "typescript": "^5.9.3"
+  }
+}
