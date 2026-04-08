@@ -7,6 +7,17 @@ process.stderr.write("LinuxHelper: starting\n");
 // Start evdev keyboard monitoring in parallel
 startKeyboardMonitor();
 
+// Track pending dispatches so we don't exit mid-flight
+let pendingCount = 0;
+let stdinClosed = false;
+
+function maybeExit(): void {
+  if (stdinClosed && pendingCount === 0) {
+    process.stderr.write("LinuxHelper: all done, exiting\n");
+    process.exit(0);
+  }
+}
+
 // Read JSON-RPC requests from stdin (one JSON object per line)
 const rl = readline.createInterface({
   input: process.stdin,
@@ -23,17 +34,24 @@ rl.on("line", (line: string) => {
       process.stderr.write(`LinuxHelper: invalid request (missing id or method)\n`);
       return;
     }
-    dispatch(request).catch((err) => {
-      process.stderr.write(`LinuxHelper: dispatch error: ${err}\n`);
-    });
+    pendingCount++;
+    dispatch(request)
+      .catch((err) => {
+        process.stderr.write(`LinuxHelper: dispatch error: ${err}\n`);
+      })
+      .finally(() => {
+        pendingCount--;
+        maybeExit();
+      });
   } catch (err) {
     process.stderr.write(`LinuxHelper: JSON parse error: ${err}\n`);
   }
 });
 
 rl.on("close", () => {
-  process.stderr.write("LinuxHelper: stdin closed, exiting\n");
-  process.exit(0);
+  process.stderr.write("LinuxHelper: stdin closed\n");
+  stdinClosed = true;
+  maybeExit();
 });
 
 process.on("SIGTERM", () => {

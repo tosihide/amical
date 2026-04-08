@@ -15,30 +15,6 @@ export function getPressedKeys(): Set<number> {
   return pressedKeys;
 }
 
-/**
- * Check if a specific key is physically pressed using EVIOCGKEY ioctl.
- * Returns null if check fails.
- */
-export function isKeyPhysicallyPressed(
-  fd: number,
-  keyCode: number,
-): boolean | null {
-  try {
-    // EVIOCGKEY(len) = _IOC(_IOC_READ, 'E', 0x18, len)
-    // For KEY_MAX=0x2ff, we need (0x2ff/8)+1 = 96 bytes
-    const KEY_MAX_BYTES = 96;
-    const EVIOCGKEY = 0x80604518; // _IOR('E', 0x18, 96 bytes)
-    const buf = Buffer.alloc(KEY_MAX_BYTES);
-
-    // Use ioctl via a raw syscall - for now use fs operations
-    // Since Node.js doesn't have native ioctl, we check our tracked state
-    // This is a simplification; a full implementation would use node-ffi or a native addon
-    return pressedKeys.has(keyCode);
-  } catch {
-    return null;
-  }
-}
-
 function scanKeyboardDevices(): string[] {
   const devices: string[] = [];
   try {
@@ -48,18 +24,20 @@ function scanKeyboardDevices(): string[] {
       if (!entry.startsWith("event")) continue;
       const devicePath = path.join(inputDir, entry);
 
-      // Check if this is a keyboard by reading /sys/class/input/<name>/device/capabilities/ev
-      const sysName = entry; // e.g., "event0"
-      const capsPath = `/sys/class/input/${sysName}/device/capabilities/key`;
+      // Check read access first
+      try {
+        fs.accessSync(devicePath, fs.constants.R_OK);
+      } catch {
+        continue; // Skip devices we can't read
+      }
+
+      // Check if this is a keyboard by reading capabilities
+      const capsPath = `/sys/class/input/${entry}/device/capabilities/key`;
       try {
         const caps = fs.readFileSync(capsPath, "utf-8").trim();
-        // A keyboard device will have bits set in the KEY capability range
-        // Check if the device has at least some key capabilities
         if (caps && caps !== "0") {
-          // Further check: real keyboards have extensive key maps
-          // Filter out devices with only a few button bits (mice, etc.)
           const parts = caps.split(" ");
-          const totalBits = parts.reduce((sum, hex) => {
+          const totalBits = parts.reduce((sum: number, hex: string) => {
             let count = 0;
             let n = parseInt(hex, 16);
             while (n) {
@@ -86,14 +64,13 @@ function scanKeyboardDevices(): string[] {
 function parseInputEvent(
   buf: Buffer,
   offset: number,
-): { type: number; code: number; value: number; timeSec: bigint; timeUsec: bigint } | null {
+): { type: number; code: number; value: number } | null {
   if (buf.length - offset < INPUT_EVENT_SIZE) return null;
-  const timeSec = buf.readBigUInt64LE(offset);
-  const timeUsec = buf.readBigUInt64LE(offset + 8);
+  // Skip timestamp (16 bytes), read type, code, value
   const type = buf.readUInt16LE(offset + 16);
   const code = buf.readUInt16LE(offset + 18);
   const value = buf.readInt32LE(offset + 20);
-  return { type, code, value, timeSec, timeUsec };
+  return { type, code, value };
 }
 
 function emitKeyEvent(
@@ -119,71 +96,65 @@ function emitKeyEvent(
 }
 
 function monitorDevice(devicePath: string): void {
-  let stream: fs.ReadStream;
+  let fd: number;
   try {
-    stream = fs.createReadStream(devicePath, {
-      flags: "r",
-      highWaterMark: INPUT_EVENT_SIZE * 64,
-    });
+    fd = fs.openSync(devicePath, "r");
   } catch (err) {
     process.stderr.write(`Cannot open ${devicePath}: ${err}\n`);
     return;
   }
 
-  let remainder = Buffer.alloc(0);
+  const buf = Buffer.alloc(INPUT_EVENT_SIZE * 64);
 
-  stream.on("data", (chunk: Buffer | string) => {
-    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    const data = Buffer.concat([remainder, buf]);
-    let offset = 0;
+  function readLoop(): void {
+    fs.read(fd, buf, 0, buf.length, null, (err, bytesRead) => {
+      if (err) {
+        process.stderr.write(`Error reading ${devicePath}: ${err.message}\n`);
+        try { fs.closeSync(fd); } catch { /* ignore */ }
+        // Retry after delay
+        setTimeout(() => monitorDevice(devicePath), 5000);
+        return;
+      }
 
-    while (offset + INPUT_EVENT_SIZE <= data.length) {
-      const event = parseInputEvent(data, offset);
-      offset += INPUT_EVENT_SIZE;
-      if (!event || event.type !== EV_KEY) continue;
+      if (bytesRead === 0) {
+        try { fs.closeSync(fd); } catch { /* ignore */ }
+        process.stderr.write(`Device ${devicePath} EOF, retrying in 5s\n`);
+        setTimeout(() => monitorDevice(devicePath), 5000);
+        return;
+      }
 
-      const { code, value } = event;
+      let offset = 0;
+      while (offset + INPUT_EVENT_SIZE <= bytesRead) {
+        const event = parseInputEvent(buf, offset);
+        offset += INPUT_EVENT_SIZE;
+        if (!event || event.type !== EV_KEY) continue;
 
-      if (value === 1) {
-        // Key down
-        pressedKeys.add(code);
-        if (isModifierKeyCode(code)) {
-          emitKeyEvent("flagsChanged", code);
-        } else {
+        const { code, value } = event;
+
+        if (value === 1) {
+          pressedKeys.add(code);
+          emitKeyEvent(isModifierKeyCode(code) ? "flagsChanged" : "keyDown", code);
+        } else if (value === 0) {
+          pressedKeys.delete(code);
+          emitKeyEvent(isModifierKeyCode(code) ? "flagsChanged" : "keyUp", code);
+        } else if (value === 2) {
           emitKeyEvent("keyDown", code);
         }
-      } else if (value === 0) {
-        // Key up
-        pressedKeys.delete(code);
-        if (isModifierKeyCode(code)) {
-          emitKeyEvent("flagsChanged", code);
-        } else {
-          emitKeyEvent("keyUp", code);
-        }
-      } else if (value === 2) {
-        // Key repeat - treat as keyDown
-        emitKeyEvent("keyDown", code);
       }
-    }
 
-    remainder = data.subarray(offset);
-  });
+      // Continue reading
+      readLoop();
+    });
+  }
 
-  stream.on("error", (err) => {
-    process.stderr.write(`Error reading ${devicePath}: ${err.message}\n`);
-  });
-
-  stream.on("close", () => {
-    process.stderr.write(`Device ${devicePath} closed, will retry in 5s\n`);
-    setTimeout(() => monitorDevice(devicePath), 5000);
-  });
+  readLoop();
 }
 
 export function startKeyboardMonitor(): void {
   const devices = scanKeyboardDevices();
   if (devices.length === 0) {
     process.stderr.write(
-      "No keyboard devices found. Ensure user is in 'input' group.\n",
+      "No readable keyboard devices found. Ensure user is in 'input' group.\n",
     );
     return;
   }

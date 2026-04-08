@@ -1,25 +1,17 @@
 /**
- * Thread-safe stdout writer.
+ * Serialized stdout writer.
  * Both RPC responses and evdev keyboard events write to stdout,
  * so we serialize writes to prevent interleaving.
+ * Uses synchronous writes to ensure output is flushed before process exits.
  */
 
-const writeQueue: string[] = [];
-let writing = false;
+import * as fs from "node:fs";
 
-function flush(): void {
-  if (writing || writeQueue.length === 0) return;
-  writing = true;
-  const line = writeQueue.shift()!;
-  process.stdout.write(line + "\n", () => {
-    writing = false;
-    flush();
-  });
-}
+const STDOUT_FD = 1;
 
 export function writeLine(obj: unknown): void {
-  writeQueue.push(JSON.stringify(obj));
-  flush();
+  const line = JSON.stringify(obj) + "\n";
+  fs.writeSync(STDOUT_FD, line);
 }
 
 export function writeResponse(id: string, result: unknown): void {
