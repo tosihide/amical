@@ -1,8 +1,15 @@
 import dotenv from "dotenv";
 dotenv.config();
 
-import { app, ipcMain } from "electron";
+import { app, ipcMain, protocol } from "electron";
 import { logger } from "./logger";
+
+// Register amical:// as a standard scheme so Chromium preserves the full URL
+// (path, query params) in navigation events and protocol handlers.
+// Must be called before app.ready.
+protocol.registerSchemesAsPrivileged([
+  { scheme: "amical", privileges: { standard: true, secure: true } },
+]);
 
 import started from "electron-squirrel-startup";
 import { AppManager } from "./core/app-manager";

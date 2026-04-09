@@ -192,22 +192,25 @@ export class AuthService extends EventEmitter {
 
     const redirectUri = this.activeRedirectUri || this.config.redirectUri;
 
-    // Diagnostic: log all navigation events on the auth window
-    for (const evt of ["will-navigate", "will-redirect", "did-navigate", "did-navigate-in-page", "did-redirect-navigation"] as const) {
-      this.authWindow.webContents.on(evt as any, (_e: any, url: string) => {
-        logger.main.info(`[auth-diag] ${evt}: ${url}`);
-      });
-    }
-
-    // Capture the OAuth callback from the 302 redirect.
-    // authorize endpoint (core.amical.ai) → 302 → callback page (login.amical.ai/oauth2/callback/...)
-    // will-redirect fires with the full https callback URL including code and state.
+    // Capture the OAuth callback via will-redirect (HTTPS callback URL).
     this.authWindow.webContents.on("will-redirect", (event, url) => {
       if (url.startsWith(redirectUri)) {
         event.preventDefault();
-        logger.main.info("OAuth callback captured:", url);
+        logger.main.info("OAuth callback captured via will-redirect:", url);
         this.handleDeepLinkFromWindow(url);
       }
+    });
+
+    // Handle amical:// protocol in-process to capture the full URL.
+    // Chromium truncates non-standard scheme URLs in navigation events
+    // (will-navigate sees "amical://" without path/query), so we register
+    // a session-level protocol handler to receive the complete URL with
+    // code & state params before Chromium normalizes it.
+    this.authWindow.webContents.session.protocol.handle("amical", (request) => {
+      const fullUrl = request.url;
+      logger.main.info("OAuth callback captured via protocol handler:", fullUrl);
+      this.handleDeepLinkFromWindow(fullUrl);
+      return new Response("", { status: 200 });
     });
 
     // After login, the page navigates to login.amical.ai/ (root).
