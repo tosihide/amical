@@ -72,6 +72,15 @@ export async function handleStartRecording(
       playSound("rec-start");
     }
 
+    // Clear clipboard to prevent stale content from being pasted
+    // if the paste fires before wl-copy finishes setting new content.
+    try {
+      await execFileAsync("wl-copy", ["--clear"]);
+      await execFileAsync("wl-copy", ["--primary", "--clear"]);
+    } catch {
+      // Best effort
+    }
+
     if (muteSystemAudio) {
       wasMutedBeforeRecording = await getSinkMuteState();
       if (!wasMutedBeforeRecording) {

@@ -1,4 +1,4 @@
-import { ipcMain, app } from "electron";
+import { ipcMain, app, clipboard } from "electron";
 import { EventEmitter } from "node:events";
 import { Mutex } from "async-mutex";
 import { logger, logPerformance } from "../logger";
@@ -11,6 +11,7 @@ import { getLatestTranscription } from "../../db/transcriptions";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { v4 as uuid } from "uuid";
+import { isLinux } from "../../utils/platform";
 
 export type RecordingMode = "idle" | "ptt" | "hands-free";
 export type TerminationCode =
@@ -897,19 +898,54 @@ export class RecordingManager extends EventEmitter {
       });
 
       if (nativeBridge) {
-        void nativeBridge
-          .call("pasteText", {
-            transcript: transcription,
-            preserveClipboard,
-          })
-          .catch((error) => {
-            logger.main.warn(
-              "Failed to paste transcription via native helper",
-              {
-                error: error instanceof Error ? error.message : String(error),
-              },
-            );
-          });
+        if (isLinux()) {
+          // Linux: use Electron clipboard API (synchronous, reliable) then
+          // ask the helper only for the keystroke simulation.
+          // This avoids the wl-copy async race condition.
+          const savedClipboard = preserveClipboard
+            ? clipboard.readText()
+            : null;
+          clipboard.writeText(transcription);
+
+          void nativeBridge
+            .call("pasteText", {
+              transcript: transcription,
+              preserveClipboard: false, // clipboard already set by Electron
+              keystrokeOnly: true,
+            })
+            .then(() => {
+              if (savedClipboard !== null) {
+                setTimeout(() => {
+                  clipboard.writeText(savedClipboard);
+                }, 500);
+              }
+            })
+            .catch((error) => {
+              logger.main.warn(
+                "Failed to paste transcription via native helper",
+                {
+                  error:
+                    error instanceof Error ? error.message : String(error),
+                },
+              );
+            });
+        } else {
+          // macOS/Windows: delegate everything to native helper
+          void nativeBridge
+            .call("pasteText", {
+              transcript: transcription,
+              preserveClipboard,
+            })
+            .catch((error) => {
+              logger.main.warn(
+                "Failed to paste transcription via native helper",
+                {
+                  error:
+                    error instanceof Error ? error.message : String(error),
+                },
+              );
+            });
+        }
       }
     } catch (error) {
       logger.main.warn(
