@@ -1,13 +1,30 @@
 import { app, BrowserWindow, session } from "electron";
 import { randomBytes, createHash } from "crypto";
+import { readFileSync } from "fs";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
 
-const CLIENT_ID = "5a0dc096e6174e5f9eec0403b2a69a24";
-const REDIRECT_URI = "amical://oauth/callback";
-const AUTH_ENDPOINT = "https://core.amical.ai/api/auth/oauth2/authorize";
-const TOKEN_ENDPOINT = "https://core.amical.ai/api/auth/oauth2/token";
-const LOGIN_URL = "https://login.amical.ai/auth/sign-in";
-const EMAIL = "thigashimori@gmail.com";
-const PASSWORD = "thrw0507";
+// Load .env from the same directory if env vars are not already set
+const __dirname = dirname(fileURLToPath(import.meta.url));
+try {
+  const lines = readFileSync(join(__dirname, ".env"), "utf-8").split("\n");
+  for (const line of lines) {
+    const match = line.match(/^\s*([\w]+)\s*=\s*(.*)\s*$/);
+    if (match && !process.env[match[1]]) {
+      process.env[match[1]] = match[2];
+    }
+  }
+} catch {
+  // .env not found, rely on environment variables
+}
+
+const CLIENT_ID = process.env.AUTH_CLIENT_ID || "5a0dc096e6174e5f9eec0403b2a69a24";
+const REDIRECT_URI = process.env.AUTH_REDIRECT_URI || "amical://oauth/callback";
+const AUTH_ENDPOINT = process.env.AUTHORIZATION_ENDPOINT || "https://core.amical.ai/api/auth/oauth2/authorize";
+const TOKEN_ENDPOINT = process.env.AUTH_TOKEN_ENDPOINT || "https://core.amical.ai/api/auth/oauth2/token";
+const LOGIN_URL = process.env.AUTH_LOGIN_URL || "https://login.amical.ai/auth/sign-in";
+const EMAIL = process.env.TEST_EMAIL || "";
+const PASSWORD = process.env.TEST_PASSWORD || "";
 
 function b64url(buf) {
   return buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");

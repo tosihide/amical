@@ -1,8 +1,28 @@
 /**
  * Investigate what URL login.amical.ai actually redirects to after OAuth login.
  * Uses Playwright to automate the login flow and capture all navigation/redirects.
+ *
+ * Usage:
+ *   node --env-file=apps/desktop/.env apps/desktop/test-oauth-spa-redirect.mjs
  */
+import { readFileSync } from "fs";
 import { chromium } from "playwright";
+
+// Load .env from the same directory as this script if not already set
+if (!process.env.TEST_EMAIL) {
+  try {
+    const envPath = new URL(".env", import.meta.url);
+    const lines = readFileSync(envPath, "utf-8").split("\n");
+    for (const line of lines) {
+      const match = line.match(/^\s*([\w]+)\s*=\s*(.*)\s*$/);
+      if (match && !process.env[match[1]]) {
+        process.env[match[1]] = match[2];
+      }
+    }
+  } catch {
+    // .env not found, rely on environment variables
+  }
+}
 
 const AUTH_URL =
   "https://login.amical.ai/auth/sign-in?" +
