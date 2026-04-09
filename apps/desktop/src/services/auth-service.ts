@@ -195,15 +195,17 @@ export class AuthService extends EventEmitter {
 
     let authorizeAttempted = false;
 
+    const redirectUri = this.activeRedirectUri || this.config.redirectUri;
+
     // Intercept the 302 redirect from the authorize endpoint at the
     // network level using webRequest.onHeadersReceived. This reads the
     // Location header directly from the HTTP response, bypassing
     // Chromium's custom-scheme URL truncation entirely.
-    authSession.webRequest.onHeadersReceived((details, callback) => {
+    authSession.webRequest.onHeadersReceived((details: Electron.OnHeadersReceivedListenerDetails, callback: (response: Electron.HeadersReceivedResponse) => void) => {
       const location =
         details.responseHeaders?.["location"]?.[0] ||
         details.responseHeaders?.["Location"]?.[0];
-      if (location && location.startsWith("amical://")) {
+      if (location && (location.startsWith("amical://") || location.startsWith(redirectUri))) {
         logger.main.info("Intercepted OAuth callback:", location);
         callback({ cancel: true });
         this.handleDeepLinkFromWindow(location);
@@ -212,11 +214,9 @@ export class AuthService extends EventEmitter {
       callback({});
     });
 
-    // Fallback: intercept amical:// navigation directly.
-    // On some platforms/Electron versions, Chromium hands custom-scheme
-    // redirects to the OS before onHeadersReceived fires.
+    // Fallback: intercept navigation to the redirect URI directly.
     this.authWindow.webContents.on("will-navigate", (event, url) => {
-      if (url.startsWith("amical://")) {
+      if (url.startsWith("amical://") || url.startsWith(redirectUri)) {
         event.preventDefault();
         logger.main.info("Intercepted OAuth callback via will-navigate:", url);
         this.handleDeepLinkFromWindow(url);
@@ -247,12 +247,19 @@ export class AuthService extends EventEmitter {
   }
 
   /**
-   * Handle the amical:// deep link captured from the auth window
+   * Handle the OAuth callback URL captured from the auth window.
+   * Supports both amical://oauth/callback and https:// redirect URIs.
    */
   private handleDeepLinkFromWindow(url: string): void {
     try {
       const parsedUrl = new URL(url);
-      if (parsedUrl.host === "oauth" && parsedUrl.pathname === "/callback") {
+      const redirectUri = this.activeRedirectUri || this.config.redirectUri;
+
+      // Match amical://oauth/callback or the configured https redirect URI
+      const isAmicalScheme = parsedUrl.host === "oauth" && parsedUrl.pathname === "/callback";
+      const isHttpsRedirect = url.startsWith(redirectUri);
+
+      if (isAmicalScheme || isHttpsRedirect) {
         const code = parsedUrl.searchParams.get("code");
         const callbackState = parsedUrl.searchParams.get("state");
 
@@ -260,7 +267,11 @@ export class AuthService extends EventEmitter {
           this.handleAuthCallback(code, callbackState).catch((error) => {
             logger.main.error("Auth callback failed:", error);
           });
+        } else {
+          logger.main.warn("OAuth callback URL missing 'code' parameter:", url);
         }
+      } else {
+        logger.main.warn("Unexpected OAuth callback URL:", url);
       }
     } catch (error) {
       logger.main.error("Failed to parse auth window URL:", error);

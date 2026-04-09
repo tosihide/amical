@@ -5,6 +5,7 @@ import { MakerZIP } from "@electron-forge/maker-zip";
 import { MakerDMG } from "@electron-forge/maker-dmg";
 import { MakerDeb } from "@electron-forge/maker-deb";
 import { MakerRpm } from "@electron-forge/maker-rpm";
+import { MakerAppImage } from "@reforged/maker-appimage";
 import { VitePlugin } from "@electron-forge/plugin-vite";
 import { FusesPlugin } from "@electron-forge/plugin-fuses";
 import { FuseV1Options, FuseVersion } from "@electron/fuses";
@@ -574,18 +575,38 @@ const config: ForgeConfig = {
       },
       ["darwin"],
     ),
-    new MakerRpm({
-      options: {
-        categories: ["Utility", "Audio"],
-        description: "AI-powered dictation and note-taking",
-      },
-    }),
+    ...(process.env.SKIP_RPM !== "true"
+      ? [
+          new MakerRpm({
+            options: {
+              categories: ["Utility", "Audio"],
+              description: "AI-powered dictation and note-taking",
+            },
+          }),
+        ]
+      : []),
     new MakerDeb({
       options: {
+        bin: "Amical",
+        name: "amical",
+        productName: "Amical",
+        genericName: "Dictation App",
         categories: ["Utility", "Audio"],
         description: "AI-powered dictation and note-taking",
         depends: ["libgtk-3-0", "libnotify4", "libnss3", "libxss1", "libsecret-1-0"],
         recommends: ["wl-clipboard", "ydotool"],
+        icon: "./assets/logo.png",
+        mimeType: ["x-scheme-handler/amical"],
+      },
+    }),
+    new MakerAppImage({
+      options: {
+        bin: "Amical",
+        name: "Amical",
+        icon: "./assets/logo.png",
+        categories: ["Utility", "Audio"],
+        genericName: "Dictation App",
+        mimeType: ["x-scheme-handler/amical"],
       },
     }),
   ],
