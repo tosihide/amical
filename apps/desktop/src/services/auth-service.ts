@@ -212,6 +212,17 @@ export class AuthService extends EventEmitter {
       callback({});
     });
 
+    // Fallback: intercept amical:// navigation directly.
+    // On some platforms/Electron versions, Chromium hands custom-scheme
+    // redirects to the OS before onHeadersReceived fires.
+    this.authWindow.webContents.on("will-navigate", (event, url) => {
+      if (url.startsWith("amical://")) {
+        event.preventDefault();
+        logger.main.info("Intercepted OAuth callback via will-navigate:", url);
+        this.handleDeepLinkFromWindow(url);
+      }
+    });
+
     // After login, the SPA navigates to login.amical.ai/ (root).
     // At that point, redirect to the authorize endpoint to get the code.
     this.authWindow.webContents.on("did-navigate-in-page", (_event, url) => {

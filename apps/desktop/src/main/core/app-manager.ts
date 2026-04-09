@@ -17,6 +17,7 @@ import { runDataMigrations } from "../migrations/data-migrations";
 import { getMainFeatureFlagState } from "@/main/utils/feature-flags";
 import { NOTE_WINDOW_FEATURE_FLAG } from "@/utils/feature-flags";
 import { initMainI18n } from "../../i18n/main";
+import { isLinux } from "../../utils/platform";
 
 export class AppManager {
   private windowManager!: WindowManager;
@@ -97,16 +98,6 @@ export class AppManager {
       this.serviceManager.getService("onboardingService");
     this.setupOnboardingEventListeners(onboardingService);
 
-    // Subscribe to recording state changes for widget visibility
-    const recordingManager = this.serviceManager.getService("recordingManager");
-    this.setupRecordingEventListeners(recordingManager);
-    const shortcutManager = this.serviceManager.getService("shortcutManager");
-    if (shortcutManager) {
-      this.setupShortcutEventListeners(shortcutManager);
-    } else {
-      logger.main.info("Shortcut event listeners skipped - shortcutManager not available");
-    }
-
     // Check if onboarding is needed using OnboardingService (single source of truth)
     const onboardingCheck = await onboardingService.checkNeedsOnboarding();
 
@@ -118,9 +109,17 @@ export class AppManager {
     this.setupSettingsEventListeners(settingsService);
 
     if (onboardingCheck.needed) {
+      // On Linux, defer recording services (NativeBridge/evdev) until after
+      // onboarding. The BrowserWindow-based OAuth flow on Linux conflicts
+      // with the amical:// protocol handler, causing second-instance launches
+      // that lose the pending auth state.
+      if (!isLinux()) {
+        await this.initializeRecordingServices();
+      }
       await onboardingService.startOnboardingFlow();
       await this.windowManager.createOrShowOnboardingWindow();
     } else {
+      await this.initializeRecordingServices();
       await this.setupWindows();
     }
 
@@ -169,7 +168,12 @@ export class AppManager {
       } else {
         // Development: just show the main app windows
         logger.main.info("Dev mode: showing main app windows after onboarding");
-        this.setupWindows();
+        const setup = isLinux()
+          ? this.initializeRecordingServices().then(() => this.setupWindows())
+          : this.setupWindows();
+        setup.catch((error) => {
+          logger.main.error("Failed to setup windows after onboarding", error);
+        });
       }
     });
 
@@ -363,6 +367,19 @@ export class AppManager {
       this.windowManager.showWidget();
     } else {
       this.windowManager.hideWidget();
+    }
+  }
+
+  private async initializeRecordingServices(): Promise<void> {
+    await this.serviceManager.initializeRecordingServices();
+
+    const recordingManager = this.serviceManager.getService("recordingManager");
+    this.setupRecordingEventListeners(recordingManager);
+    const shortcutManager = this.serviceManager.getService("shortcutManager");
+    if (shortcutManager) {
+      this.setupShortcutEventListeners(shortcutManager);
+    } else {
+      logger.main.info("Shortcut event listeners skipped - shortcutManager not available");
     }
   }
 

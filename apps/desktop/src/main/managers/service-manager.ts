@@ -76,15 +76,26 @@ export class ServiceManager {
     await this.initializeFeatureFlagService();
     await this.initializeModelServices();
     await this.initializeOnboardingService();
-    this.initializePlatformServices();
     await this.initializeVADService();
     await this.initializeAIServices();
-    this.initializeRecordingManager();
-    await this.initializeShortcutManager();
     await this.initializeAutoUpdater();
 
     this.isInitialized = true;
     logger.main.info("Services initialized successfully");
+  }
+
+  /**
+   * Initialize recording-related services (NativeBridge, RecordingManager, ShortcutManager).
+   * On Linux, these are deferred until after onboarding because the
+   * BrowserWindow-based OAuth flow conflicts with the amical:// protocol
+   * handler when NativeBridge is already running.
+   * On macOS/Windows this is called during normal initialization.
+   */
+  async initializeRecordingServices(): Promise<void> {
+    this.initializePlatformServices();
+    this.initializeRecordingManager();
+    await this.initializeShortcutManager();
+    logger.main.info("Recording services initialized");
   }
 
   private async initializePostHogClient(): Promise<void> {
@@ -276,10 +287,10 @@ export class ServiceManager {
       settingsService: this.settingsService!,
       authService: this.authService!,
       vadService: this.vadService!,
-      nativeBridge: this.nativeBridge!,
+      nativeBridge: this.nativeBridge as any,
       autoUpdaterService: this.autoUpdaterService!,
-      recordingManager: this.recordingManager!,
-      shortcutManager: this.shortcutManager!,
+      recordingManager: this.recordingManager as any,
+      shortcutManager: this.shortcutManager as any,
       windowManager: this.windowManager!,
       onboardingService: this.onboardingService!,
     };

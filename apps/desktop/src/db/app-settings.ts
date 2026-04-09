@@ -36,7 +36,7 @@ import { DEFAULT_HISTORY_RETENTION_PERIOD } from "../constants/history-retention
 const SETTINGS_ID = 1;
 
 // Platform-specific default shortcuts (keycode array format)
-const getDefaultShortcuts = () => {
+export const getDefaultShortcuts = () => {
   if (isMacOS()) {
     return {
       pushToTalk: [MAC_KEYCODES.FN],
@@ -52,10 +52,11 @@ const getDefaultShortcuts = () => {
 
   if (isLinux()) {
     return {
-      pushToTalk: [LINUX_KEYCODES.CTRL, LINUX_KEYCODES.SHIFT, LINUX_KEYCODES.META],
+      pushToTalk: [LINUX_KEYCODES.CTRL, LINUX_KEYCODES.META],
       toggleRecording: [
         LINUX_KEYCODES.CTRL,
         LINUX_KEYCODES.META,
+        LINUX_KEYCODES.SPACE,
       ],
       pasteLastTranscript: [
         LINUX_KEYCODES.ALT,
