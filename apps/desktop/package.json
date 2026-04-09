@@ -29,7 +29,7 @@
     "package:x64": "pnpm build:deps && electron-forge package --platform=darwin --arch=x64",
     "package:windows": "pnpm build:deps && electron-forge package --platform=win32 --arch=x64",
     "make:windows": "pnpm build:deps && electron-forge make --platform=win32 --arch=x64",
-    "make:linux": "pnpm build:deps && pnpm build:linux-helper && electron-forge make --platform=linux --arch=x64",
+    "make:linux": "pnpm build:deps && pnpm build:linux-helper && SKIP_RPM=true electron-forge make --platform=linux --arch=x64",
     "package:linux": "pnpm build:deps && pnpm build:linux-helper && electron-forge package --platform=linux --arch=x64",
     "build:linux-helper": "cd ../../packages/native-helpers/linux-helper-ts && npm run build",
     "publish": "electron-forge publish",

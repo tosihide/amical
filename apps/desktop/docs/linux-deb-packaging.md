@@ -1,5 +1,20 @@
 # Linux パッケージビルドガイド (.deb / AppImage)
 
+---
+
+> **TL;DR — よく使うコマンド**
+>
+> | やりたいこと | コマンド |
+> |------------|---------|
+> | 開発起動 | `ELECTRON_DISABLE_SANDBOX=1 pnpm start` (または `./run.sh`) |
+> | パッケージビルド | `cd apps/desktop && pnpm make:linux` |
+> | 初回のみ | `pnpm download-node && convert assets/logo.svg -resize 256x256 assets/logo.png` |
+>
+> **重要:** `electron-forge make` に `--targets` フラグは使わないこと。  
+> `forge.config.ts` のカスタム設定が無視され、ビルドが失敗する（[詳細](#23-問題3---targets-フラグ使用時に-maker-の設定が無視される)）。
+
+---
+
 ## 概要
 
 Amical Desktop の Ubuntu/Debian 向け配布パッケージのビルド手順と、
@@ -27,21 +42,15 @@ Amical Desktop の Ubuntu/Debian 向け配布パッケージのビルド手順�
 sudo apt install dpkg fakeroot imagemagick
 ```
 
-### 1.2 共通の事前準備
+### 1.2 共通の事前準備（初回のみ）
 
 ```bash
 cd apps/desktop
 
-# 1. 依存関係のビルド（types, native helpers）
-pnpm build:deps
-
-# 2. Linux Helper のビルド
-pnpm build:linux-helper
-
-# 3. Node.js バイナリのダウンロード（初回のみ）
+# Node.js バイナリのダウンロード
 pnpm download-node
 
-# 4. アイコン用 PNG の生成（logo.png が存在しない場合）
+# アイコン用 PNG の生成（logo.png が存在しない場合）
 convert assets/logo.svg -resize 256x256 assets/logo.png
 ```
 
@@ -50,8 +59,11 @@ convert assets/logo.svg -resize 256x256 assets/logo.png
 以下のコマンドで `.deb` と AppImage の両方が同時にビルドされる:
 
 ```bash
-SKIP_RPM=true pnpm exec electron-forge make --platform=linux --arch=x64
+cd apps/desktop
+pnpm make:linux
 ```
+
+内部では `pnpm build:deps && pnpm build:linux-helper && SKIP_RPM=true electron-forge make --platform=linux --arch=x64` が実行される。
 
 ### 1.4 出力先
 
