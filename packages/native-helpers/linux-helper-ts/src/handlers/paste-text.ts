@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -14,6 +14,24 @@ async function run(
     ...(input !== undefined && { input }),
   });
   return stdout;
+}
+
+/**
+ * Run wl-copy in a detached process.
+ * wl-copy forks and stays resident to serve clipboard requests,
+ * so we must detach it to avoid blocking the caller.
+ */
+function runWlCopy(text: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("wl-copy", ["--", text], {
+      detached: true,
+      stdio: "ignore",
+    });
+    child.unref();
+    child.on("error", reject);
+    // wl-copy forks quickly; give it a moment to set up
+    setTimeout(resolve, 100);
+  });
 }
 
 export async function handlePasteText(
@@ -39,8 +57,8 @@ export async function handlePasteText(
       }
     }
 
-    // Set clipboard to transcript
-    await run("wl-copy", ["--"], transcript);
+    // Set clipboard to transcript (detached — wl-copy stays resident)
+    await runWlCopy(transcript);
 
     // Small delay to ensure clipboard is set
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -54,7 +72,7 @@ export async function handlePasteText(
     if (preserveClipboard && savedClipboard !== null) {
       setTimeout(async () => {
         try {
-          await run("wl-copy", ["--"], savedClipboard!);
+          await runWlCopy(savedClipboard!);
         } catch {
           // Best effort
         }

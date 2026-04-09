@@ -38,11 +38,12 @@ function scanKeyboardDevices(): string[] {
         if (caps && caps !== "0") {
           const parts = caps.split(" ");
           const totalBits = parts.reduce((sum: number, hex: string) => {
+            // Use BigInt to handle 64-bit hex values correctly
             let count = 0;
-            let n = parseInt(hex, 16);
+            let n = BigInt(`0x${hex}`);
             while (n) {
-              count += n & 1;
-              n >>= 1;
+              count += Number(n & 1n);
+              n >>= 1n;
             }
             return sum + count;
           }, 0);

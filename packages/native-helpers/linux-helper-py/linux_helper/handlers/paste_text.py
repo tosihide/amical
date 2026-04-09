@@ -4,6 +4,24 @@ import subprocess
 import time
 
 
+def _run_wl_copy(text: str) -> None:
+    """Run wl-copy detached.
+
+    wl-copy forks and stays resident to serve clipboard paste requests,
+    so we must start it without waiting for it to exit.
+    """
+    proc = subprocess.Popen(
+        ["wl-copy", "--", text],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    # Give it a moment to register with the compositor
+    time.sleep(0.1)
+    # Don't wait — the process stays alive to serve pastes
+
+
 def handle_paste_text(params: dict) -> dict:
     transcript = params.get("transcript", "")
     preserve_clipboard = params.get("preserveClipboard", True)
@@ -25,14 +43,8 @@ def handle_paste_text(params: dict) -> dict:
             except (subprocess.SubprocessError, OSError):
                 saved_clipboard = ""
 
-        # Set clipboard to transcript
-        subprocess.run(
-            ["wl-copy", "--", transcript],
-            check=True, timeout=5,
-        )
-
-        # Small delay to ensure clipboard is set
-        time.sleep(0.05)
+        # Set clipboard to transcript (detached — wl-copy stays resident)
+        _run_wl_copy(transcript)
 
         # Simulate Ctrl+V via ydotool
         # keycode 29 = KEY_LEFTCTRL, 47 = KEY_V
@@ -46,11 +58,8 @@ def handle_paste_text(params: dict) -> dict:
             def _restore():
                 time.sleep(0.5)
                 try:
-                    subprocess.run(
-                        ["wl-copy", "--", saved_clipboard],
-                        timeout=5,
-                    )
-                except (subprocess.SubprocessError, OSError):
+                    _run_wl_copy(saved_clipboard)
+                except OSError:
                     pass
 
             import threading
