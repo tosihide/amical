@@ -225,10 +225,16 @@ export class ServiceManager {
   }
 
   private async initializeShortcutManager(): Promise<void> {
-    if (!this.settingsService || !this.nativeBridge || !this.recordingManager) {
+    if (!this.settingsService || !this.recordingManager) {
       throw new Error(
-        "SettingsService, NativeBridge and RecordingManager must be initialized first",
+        "SettingsService and RecordingManager must be initialized first",
       );
+    }
+    if (!this.nativeBridge) {
+      logger.main.info(
+        "Shortcut manager skipped - NativeBridge not available on this platform",
+      );
+      return;
     }
     this.shortcutManager = new ShortcutManager(
       this.settingsService,

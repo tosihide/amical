@@ -233,14 +233,16 @@ export class WindowManager {
             titleBarStyle: "hiddenInset",
             vibrancy: "menu",
           }
-        : {
-            titleBarStyle: "hidden",
-            titleBarOverlay: {
-              color: colors.backgroundColor,
-              symbolColor: colors.symbolColor,
-              height: 32,
-            },
-          }),
+        : process.platform === "linux"
+          ? {}
+          : {
+              titleBarStyle: "hidden",
+              titleBarOverlay: {
+                color: colors.backgroundColor,
+                symbolColor: colors.symbolColor,
+                height: 32,
+              },
+            }),
       trafficLightPosition: this.getTrafficLightPosition(),
       useContentSize: true,
       webPreferences: {
@@ -422,12 +424,16 @@ export class WindowManager {
       width: 800,
       height: windowHeight,
       frame: true,
-      titleBarStyle: "hidden",
-      titleBarOverlay: {
-        color: colors.backgroundColor,
-        symbolColor: colors.symbolColor,
-        height: 32,
-      },
+      ...(process.platform === "linux"
+        ? {}
+        : {
+            titleBarStyle: "hidden" as const,
+            titleBarOverlay: {
+              color: colors.backgroundColor,
+              symbolColor: colors.symbolColor,
+              height: 32,
+            },
+          }),
       trafficLightPosition: this.getTrafficLightPosition(),
       resizable: false,
       center: true,

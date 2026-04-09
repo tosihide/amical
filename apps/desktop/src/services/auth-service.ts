@@ -1,4 +1,4 @@
-import { shell } from "electron";
+import { shell, BrowserWindow } from "electron";
 import { randomBytes, createHash } from "crypto";
 import { logger } from "../main/logger";
 import { EventEmitter } from "events";
@@ -55,6 +55,8 @@ export class AuthService extends EventEmitter {
   private config: AuthConfig;
   private pendingAuth: PendingAuth | null = null;
   private refreshPromise: Promise<void> | null = null;
+  private authWindow: BrowserWindow | null = null;
+  private activeRedirectUri: string | null = null;
 
   private constructor() {
     super();
@@ -128,6 +130,8 @@ export class AuthService extends EventEmitter {
         codeChallenge: challenge,
       };
 
+      this.activeRedirectUri = this.config.redirectUri;
+
       // Build authorization URL
       const params = new URLSearchParams({
         client_id: this.config.clientId,
@@ -139,17 +143,121 @@ export class AuthService extends EventEmitter {
         code_challenge_method: "S256",
       });
 
-      const authUrl = `${this.config.authorizationEndpoint}?${params.toString()}`;
+      const authorizeUrl = `${this.config.authorizationEndpoint}?${params.toString()}`;
 
-      logger.main.info("Starting OAuth flow with URL:", authUrl);
-
-      // Open in default browser
-      await shell.openExternal(authUrl);
-
-      // The callback will be handled via deep link
+      if (process.platform === "linux") {
+        // On Linux, use a BrowserWindow for the full OAuth flow:
+        // 1. Show login page (login.amical.ai) for user to sign in
+        // 2. After sign-in, navigate to the authorize endpoint with session cookie
+        // 3. Server returns 302 to amical://oauth/callback?code=...
+        // 4. will-navigate intercepts the full URL
+        const loginUrl =
+          (process.env.AUTH_LOGIN_URL || "https://login.amical.ai/auth/sign-in") +
+          "?" + params.toString();
+        logger.main.info("Starting OAuth flow (Linux) - login URL:", loginUrl);
+        this.openAuthWindow(loginUrl, authorizeUrl);
+      } else {
+        logger.main.info("Starting OAuth flow with URL:", authorizeUrl);
+        // macOS/Windows: open in default browser, callback via deep link
+        await shell.openExternal(authorizeUrl);
+      }
     } catch (error) {
       logger.main.error("Error starting OAuth flow:", error);
       throw error;
+    }
+  }
+
+  /**
+   * Open a BrowserWindow for OAuth login on Linux.
+   * Intercepts navigation to amical:// to capture the callback.
+   */
+  private openAuthWindow(loginUrl: string, authorizeUrl: string): void {
+    if (this.authWindow && !this.authWindow.isDestroyed()) {
+      this.authWindow.focus();
+      return;
+    }
+
+    // Use a dedicated session partition so webRequest handlers don't
+    // conflict with the main app session.
+    const { session } = require("electron");
+    const authSession = session.fromPartition("auth-oauth");
+
+    this.authWindow = new BrowserWindow({
+      width: 800,
+      height: 700,
+      show: true,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        partition: "auth-oauth",
+      },
+    });
+
+    let authorizeAttempted = false;
+
+    // Intercept the 302 redirect from the authorize endpoint at the
+    // network level using webRequest.onHeadersReceived. This reads the
+    // Location header directly from the HTTP response, bypassing
+    // Chromium's custom-scheme URL truncation entirely.
+    authSession.webRequest.onHeadersReceived((details, callback) => {
+      const location =
+        details.responseHeaders?.["location"]?.[0] ||
+        details.responseHeaders?.["Location"]?.[0];
+      if (location && location.startsWith("amical://")) {
+        logger.main.info("Intercepted OAuth callback:", location);
+        callback({ cancel: true });
+        this.handleDeepLinkFromWindow(location);
+        return;
+      }
+      callback({});
+    });
+
+    // After login, the SPA navigates to login.amical.ai/ (root).
+    // At that point, redirect to the authorize endpoint to get the code.
+    this.authWindow.webContents.on("did-navigate-in-page", (_event, url) => {
+      if (
+        !authorizeAttempted &&
+        (url === "https://login.amical.ai/" ||
+          url === "https://login.amical.ai")
+      ) {
+        authorizeAttempted = true;
+        logger.main.info(
+          "Login complete, navigating to authorize endpoint",
+        );
+        this.authWindow?.loadURL(authorizeUrl);
+      }
+    });
+
+    this.authWindow.on("closed", () => {
+      this.authWindow = null;
+    });
+
+    this.authWindow.loadURL(loginUrl);
+  }
+
+  /**
+   * Handle the amical:// deep link captured from the auth window
+   */
+  private handleDeepLinkFromWindow(url: string): void {
+    try {
+      const parsedUrl = new URL(url);
+      if (parsedUrl.host === "oauth" && parsedUrl.pathname === "/callback") {
+        const code = parsedUrl.searchParams.get("code");
+        const callbackState = parsedUrl.searchParams.get("state");
+
+        if (code) {
+          this.handleAuthCallback(code, callbackState).catch((error) => {
+            logger.main.error("Auth callback failed:", error);
+          });
+        }
+      }
+    } catch (error) {
+      logger.main.error("Failed to parse auth window URL:", error);
+    }
+
+    if (this.authWindow && !this.authWindow.isDestroyed()) {
+      this.authWindow.close();
+      this.authWindow = null;
     }
   }
 
@@ -245,7 +353,7 @@ export class AuthService extends EventEmitter {
       grant_type: "authorization_code",
       code: code,
       client_id: this.config.clientId,
-      redirect_uri: this.config.redirectUri,
+      redirect_uri: this.activeRedirectUri || this.config.redirectUri,
       code_verifier: codeVerifier,
     };
 

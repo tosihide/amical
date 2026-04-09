@@ -328,7 +328,9 @@ export class OnboardingService extends EventEmitter {
     accessibility: boolean;
   } {
     const microphone =
-      systemPreferences.getMediaAccessStatus("microphone") === "granted";
+      process.platform === "darwin"
+        ? systemPreferences.getMediaAccessStatus("microphone") === "granted"
+        : true; // Linux/Windows don't use macOS media access API
 
     const accessibility =
       process.platform === "darwin"

@@ -9,6 +9,7 @@ import { AppManager } from "./core/app-manager";
 import { isWindows } from "../utils/platform";
 import { ServiceManager } from "./managers/service-manager";
 
+
 // Setup renderer logging relay (allows renderer to send logs to main process)
 ipcMain.handle(
   "log-message",
@@ -68,6 +69,7 @@ app.on("open-url", (event, url) => {
 
 // Handle when another instance tries to start (Windows/Linux deep link handling)
 app.on("second-instance", (_event, commandLine) => {
+  logger.main.info("Second instance commandLine:", commandLine);
   // Someone tried to run a second instance, we should focus our window instead.
   if (isInitialized) {
     appManager.handleSecondInstance();
@@ -75,6 +77,7 @@ app.on("second-instance", (_event, commandLine) => {
 
   // Check if this is a protocol launch on Windows/Linux
   const url = commandLine.find((arg) => arg.startsWith("amical://"));
+  logger.main.info("Extracted deep link URL:", url);
   if (url) {
     if (isInitialized) {
       appManager.handleDeepLink(url);
