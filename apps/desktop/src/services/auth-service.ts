@@ -177,11 +177,6 @@ export class AuthService extends EventEmitter {
       return;
     }
 
-    // Use a dedicated session partition so webRequest handlers don't
-    // conflict with the main app session.
-    const { session } = require("electron");
-    const authSession = session.fromPartition("auth-oauth");
-
     this.authWindow = new BrowserWindow({
       width: 800,
       height: 700,
@@ -197,35 +192,29 @@ export class AuthService extends EventEmitter {
 
     const redirectUri = this.activeRedirectUri || this.config.redirectUri;
 
-    // Intercept the 302 redirect from the authorize endpoint at the
-    // network level using webRequest.onHeadersReceived. This reads the
-    // Location header directly from the HTTP response, bypassing
-    // Chromium's custom-scheme URL truncation entirely.
-    authSession.webRequest.onHeadersReceived((details: Electron.OnHeadersReceivedListenerDetails, callback: (response: Electron.HeadersReceivedResponse) => void) => {
-      const location =
-        details.responseHeaders?.["location"]?.[0] ||
-        details.responseHeaders?.["Location"]?.[0];
-      if (location && (location.startsWith("amical://") || location.startsWith(redirectUri))) {
-        logger.main.info("Intercepted OAuth callback:", location);
-        callback({ cancel: true });
-        this.handleDeepLinkFromWindow(location);
-        return;
-      }
-      callback({});
-    });
+    // Diagnostic: log all navigation events on the auth window
+    for (const evt of ["will-navigate", "will-redirect", "did-navigate", "did-navigate-in-page", "did-redirect-navigation"] as const) {
+      this.authWindow.webContents.on(evt as any, (_e: any, url: string) => {
+        logger.main.info(`[auth-diag] ${evt}: ${url}`);
+      });
+    }
 
-    // Fallback: intercept navigation to the redirect URI directly.
-    this.authWindow.webContents.on("will-navigate", (event, url) => {
-      if (url.startsWith("amical://") || url.startsWith(redirectUri)) {
+    // Capture the OAuth callback from the 302 redirect.
+    // authorize endpoint (core.amical.ai) → 302 → callback page (login.amical.ai/oauth2/callback/...)
+    // will-redirect fires with the full https callback URL including code and state.
+    this.authWindow.webContents.on("will-redirect", (event, url) => {
+      if (url.startsWith(redirectUri)) {
         event.preventDefault();
-        logger.main.info("Intercepted OAuth callback via will-navigate:", url);
+        logger.main.info("OAuth callback captured:", url);
         this.handleDeepLinkFromWindow(url);
       }
     });
 
-    // After login, the SPA navigates to login.amical.ai/ (root).
-    // At that point, redirect to the authorize endpoint to get the code.
-    this.authWindow.webContents.on("did-navigate-in-page", (_event, url) => {
+    // After login, the page navigates to login.amical.ai/ (root).
+    // This may be an SPA in-page navigation (did-navigate-in-page) or a
+    // full navigation (did-navigate) depending on server-side session state.
+    // Listen on both events to reliably detect login completion.
+    const onLoginComplete = (_event: unknown, url: string) => {
       if (
         !authorizeAttempted &&
         (url === "https://login.amical.ai/" ||
@@ -237,7 +226,9 @@ export class AuthService extends EventEmitter {
         );
         this.authWindow?.loadURL(authorizeUrl);
       }
-    });
+    };
+    this.authWindow.webContents.on("did-navigate-in-page", onLoginComplete as any);
+    this.authWindow.webContents.on("did-navigate", onLoginComplete as any);
 
     this.authWindow.on("closed", () => {
       this.authWindow = null;
