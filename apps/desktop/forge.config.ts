@@ -412,6 +412,7 @@ const config: ForgeConfig = {
         ? [
             "../../packages/native-helpers/linux-helper-ts/bin",
             "../../packages/native-helpers/linux-helper-ts/dist",
+            "../../packages/native-helpers/linux-helper-ts/resources",
           ]
         : [
             `../../packages/native-helpers/${process.platform === "win32" ? "windows-helper" : "swift-helper"}/bin`,

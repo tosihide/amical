@@ -34,6 +34,21 @@ function runWlCopy(text: string): Promise<void> {
   });
 }
 
+/**
+ * Detect ydotool version and simulate Ctrl+V accordingly.
+ * v0.1.x uses: ydotool key ctrl+v
+ * v1.x+  uses: ydotool key 29:1 47:1 47:0 29:0
+ */
+async function simulateCtrlV(): Promise<void> {
+  try {
+    // Try v0.1.x format first (more common on Ubuntu 24.04)
+    await run("ydotool", ["key", "ctrl+v"]);
+  } catch {
+    // Fallback: try v1.x format
+    await run("ydotool", ["key", "29:1", "47:1", "47:0", "29:0"]);
+  }
+}
+
 export async function handlePasteText(
   params: Record<string, unknown>,
 ): Promise<{ success: boolean; message?: string }> {
@@ -63,10 +78,8 @@ export async function handlePasteText(
     // Small delay to ensure clipboard is set
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    // Simulate Ctrl+V via ydotool
-    // keycode 29 = KEY_LEFTCTRL, 47 = KEY_V
-    // format: keycode:down keycode:down keycode:up keycode:up
-    await run("ydotool", ["key", "29:1", "47:1", "47:0", "29:0"]);
+    // Simulate Ctrl+V
+    await simulateCtrlV();
 
     // Restore clipboard after a delay if needed
     if (preserveClipboard && savedClipboard !== null) {
