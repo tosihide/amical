@@ -8,7 +8,7 @@ import { RecordingManager } from "./recording-manager";
 import { VADService } from "../../services/vad-service";
 import { ShortcutManager } from "./shortcut-manager";
 import { WindowManager } from "../core/window-manager";
-import { isMacOS, isWindows } from "../../utils/platform";
+import { isMacOS, isWindows, isLinux } from "../../utils/platform";
 import { PostHogClient } from "../../services/posthog-client";
 import { TelemetryService } from "../../services/telemetry-service";
 import { AuthService } from "../../services/auth-service";
@@ -214,7 +214,7 @@ export class ServiceManager {
 
   private initializePlatformServices(): void {
     // Initialize platform-specific bridge
-    if (isMacOS() || isWindows()) {
+    if (isMacOS() || isWindows() || isLinux()) {
       this.nativeBridge = new NativeBridge(this.telemetryService ?? undefined);
     }
   }

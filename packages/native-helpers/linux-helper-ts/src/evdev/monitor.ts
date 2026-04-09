@@ -83,8 +83,6 @@ function emitKeyEvent(
     type: eventType,
     payload: {
       keyCode,
-      key: null,
-      code: null,
       altKey: flags.altKey,
       ctrlKey: flags.ctrlKey,
       shiftKey: flags.shiftKey,

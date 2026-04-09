@@ -206,3 +206,67 @@ export const WINDOWS_KEYCODES = {
   F23: 0x86,
   F24: 0x87,
 } as const;
+
+// Linux evdev key codes
+export const LINUX_KEYCODES = {
+  // Letters
+  A: 30,
+  B: 48,
+  C: 46,
+  D: 32,
+  E: 18,
+  F: 33,
+  G: 34,
+  H: 35,
+  I: 23,
+  J: 36,
+  K: 37,
+  L: 38,
+  M: 50,
+  N: 49,
+  O: 24,
+  P: 25,
+  Q: 16,
+  R: 19,
+  S: 31,
+  T: 20,
+  U: 22,
+  V: 47,
+  W: 17,
+  X: 45,
+  Y: 21,
+  Z: 44,
+
+  // Modifiers
+  CTRL: 29,
+  RCTRL: 97,
+  SHIFT: 42,
+  RSHIFT: 54,
+  ALT: 56,
+  RALT: 100,
+  META: 125,
+  RMETA: 126,
+  FN: 464,
+
+  // Special keys
+  SPACE: 57,
+  ENTER: 28,
+  TAB: 15,
+  ESCAPE: 1,
+  BACKSPACE: 14,
+  DELETE: 111,
+
+  // Function keys
+  F1: 59,
+  F2: 60,
+  F3: 61,
+  F4: 62,
+  F5: 63,
+  F6: 64,
+  F7: 65,
+  F8: 66,
+  F9: 67,
+  F10: 68,
+  F11: 87,
+  F12: 88,
+} as const;

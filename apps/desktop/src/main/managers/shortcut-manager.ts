@@ -199,6 +199,15 @@ export class ShortcutManager extends EventEmitter {
         case "keyUp":
           this.handleKeyUp(event.payload);
           break;
+        case "flagsChanged":
+          // Modifier keys (Ctrl, Shift, Alt, Meta) are sent as flagsChanged.
+          // Treat as keyDown if not tracked, keyUp if already tracked.
+          if (this.activeKeys.has(event.payload.keyCode)) {
+            this.handleKeyUp(event.payload);
+          } else {
+            this.handleKeyDown(event.payload);
+          }
+          break;
       }
     });
   }

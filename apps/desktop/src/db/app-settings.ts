@@ -24,8 +24,8 @@ import {
   type NewAppSettings,
   type AppSettingsData,
 } from "./schema";
-import { isMacOS } from "../utils/platform";
-import { MAC_KEYCODES, WINDOWS_KEYCODES } from "../utils/keycodes";
+import { isMacOS, isLinux } from "../utils/platform";
+import { MAC_KEYCODES, WINDOWS_KEYCODES, LINUX_KEYCODES } from "../utils/keycodes";
 import {
   CURRENT_SETTINGS_VERSION,
   migrateSettings,
@@ -47,6 +47,22 @@ const getDefaultShortcuts = () => {
         MAC_KEYCODES.V,
       ],
       newNote: [MAC_KEYCODES.CMD, MAC_KEYCODES.CTRL, MAC_KEYCODES.N],
+    };
+  }
+
+  if (isLinux()) {
+    return {
+      pushToTalk: [LINUX_KEYCODES.CTRL, LINUX_KEYCODES.SHIFT, LINUX_KEYCODES.META],
+      toggleRecording: [
+        LINUX_KEYCODES.CTRL,
+        LINUX_KEYCODES.META,
+      ],
+      pasteLastTranscript: [
+        LINUX_KEYCODES.ALT,
+        LINUX_KEYCODES.SHIFT,
+        LINUX_KEYCODES.V,
+      ],
+      newNote: [LINUX_KEYCODES.ALT, LINUX_KEYCODES.SHIFT, LINUX_KEYCODES.N],
     };
   }
 

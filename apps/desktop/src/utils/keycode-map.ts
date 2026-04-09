@@ -1,4 +1,4 @@
-import { isWindows } from "./platform";
+import { isWindows, isLinux } from "./platform";
 
 // macOS keycode mappings
 // Note: PrintScreen is not standard on macOS keyboards. External keyboards may send it,
@@ -325,9 +325,149 @@ const windowsVKToKey: Record<number, string> = {
   0xe7: "Packet",
 };
 
+// Linux evdev keycode mappings
+const linuxEvdevToKey: Record<number, string> = {
+  // Letters (evdev codes 16-50 follow QWERTY layout)
+  16: "Q",
+  17: "W",
+  18: "E",
+  19: "R",
+  20: "T",
+  21: "Y",
+  22: "U",
+  23: "I",
+  24: "O",
+  25: "P",
+  30: "A",
+  31: "S",
+  32: "D",
+  33: "F",
+  34: "G",
+  35: "H",
+  36: "J",
+  37: "K",
+  38: "L",
+  44: "Z",
+  45: "X",
+  46: "C",
+  47: "V",
+  48: "B",
+  49: "N",
+  50: "M",
+
+  // Numbers
+  2: "1",
+  3: "2",
+  4: "3",
+  5: "4",
+  6: "5",
+  7: "6",
+  8: "7",
+  9: "8",
+  10: "9",
+  11: "0",
+
+  // Special keys
+  1: "Escape",
+  14: "Delete",
+  15: "Tab",
+  28: "Enter",
+  57: "Space",
+  58: "CapsLock",
+  111: "ForwardDelete",
+
+  // Modifier keys
+  29: "Ctrl",
+  97: "RCtrl",
+  42: "Shift",
+  54: "RShift",
+  56: "Alt",
+  100: "RAlt",
+  125: "Cmd", // Super/Meta left (mapped to Cmd for consistency)
+  126: "RCmd", // Super/Meta right
+  464: "Fn",
+
+  // Function keys
+  59: "F1",
+  60: "F2",
+  61: "F3",
+  62: "F4",
+  63: "F5",
+  64: "F6",
+  65: "F7",
+  66: "F8",
+  67: "F9",
+  68: "F10",
+  87: "F11",
+  88: "F12",
+
+  // Navigation keys
+  102: "Home",
+  107: "End",
+  104: "PageUp",
+  109: "PageDown",
+
+  // Arrow keys
+  103: "Up",
+  108: "Down",
+  105: "Left",
+  106: "Right",
+
+  // Punctuation and symbols
+  12: "-",
+  13: "=",
+  26: "[",
+  27: "]",
+  43: "\\",
+  39: ";",
+  40: "'",
+  51: ",",
+  52: ".",
+  53: "/",
+  41: "`",
+
+  // Keypad keys
+  55: "KeypadMultiply",
+  69: "NumLock",
+  71: "Keypad7",
+  72: "Keypad8",
+  73: "Keypad9",
+  74: "KeypadMinus",
+  75: "Keypad4",
+  76: "Keypad5",
+  77: "Keypad6",
+  78: "KeypadPlus",
+  79: "Keypad1",
+  80: "Keypad2",
+  81: "Keypad3",
+  82: "Keypad0",
+  83: "KeypadDecimal",
+  96: "KeypadEnter",
+  98: "KeypadDivide",
+
+  // Media keys
+  113: "Mute",
+  114: "VolumeDown",
+  115: "VolumeUp",
+  163: "MediaNextTrack",
+  165: "MediaPrevTrack",
+  166: "MediaStop",
+  164: "MediaPlayPause",
+
+  // Additional keys
+  99: "PrintScreen",
+  110: "Insert",
+  119: "Pause",
+  127: "Menu",
+};
+
 export function getKeyFromKeycode(keycode: number): string | undefined {
   // Use the appropriate mapping based on platform
-  const mapping = isWindows() ? windowsVKToKey : macOSKeycodeToKey;
+  const mapping = isLinux()
+    ? linuxEvdevToKey
+    : isWindows()
+      ? windowsVKToKey
+      : macOSKeycodeToKey;
   return mapping[keycode];
 }
 
@@ -345,6 +485,7 @@ function buildReverseMap(
 
 const macKeyToKeycode = buildReverseMap(macOSKeycodeToKey);
 const windowsKeyToKeycode = buildReverseMap(windowsVKToKey);
+const linuxKeyToKeycode = buildReverseMap(linuxEvdevToKey);
 
 export function getKeycodeFromKeyName(keyName: string): number | undefined {
   if (keyName.startsWith("Key")) {
@@ -355,6 +496,10 @@ export function getKeycodeFromKeyName(keyName: string): number | undefined {
     }
   }
 
-  const mapping = isWindows() ? windowsKeyToKeycode : macKeyToKeycode;
+  const mapping = isLinux()
+    ? linuxKeyToKeycode
+    : isWindows()
+      ? windowsKeyToKeycode
+      : macKeyToKeycode;
   return mapping[keyName];
 }
