@@ -1,27 +1,27 @@
-# Electron Forgeで.debとAppImageを同時ビルド -- Linuxパッケージング実践ガイド
+# Building .deb and AppImage Simultaneously with Electron Forge -- A Practical Guide to Linux Packaging
 
-## 導入
+## Introduction
 
-Electron アプリを Linux 向けに配布するとき、`.deb`（Debian/Ubuntu系）と AppImage（ディストロ非依存のポータブル形式）の2種類を用意できると、ユーザーの選択肢が広がる。
+When distributing an Electron app for Linux, offering both `.deb` (for Debian/Ubuntu-based systems) and AppImage (a distro-independent portable format) gives users more choices.
 
-本記事では、**Electron Forge** を使ってこの2形式を1コマンドで同時ビルドする方法を、実際のプロジェクト（Amical Desktop -- AI 音声入力アプリ）の構成をベースに解説する。モノレポ構成でネイティブモジュールを含むケースでの落とし穴と、それぞれの解決策も取り上げる。
+This article explains how to use **Electron Forge** to build both formats with a single command, based on the configuration of a real project (Amical Desktop -- an AI-powered voice input app). We also cover pitfalls specific to monorepo setups with native modules and their solutions.
 
-### 技術スタック
+### Technology Stack
 
-| 要素 | バージョン/ツール |
-|------|-----------------|
+| Component | Version/Tool |
+|-----------|-------------|
 | Electron | 38.x |
 | Electron Forge | 7.8.2 |
-| ビルドツール | Vite（VitePlugin経由） |
-| パッケージマネージャ | pnpm 10.x |
+| Build Tool | Vite (via VitePlugin) |
+| Package Manager | pnpm 10.x |
 | Node.js | 22.x |
-| 対象OS | Ubuntu 24.04 LTS (amd64) |
+| Target OS | Ubuntu 24.04 LTS (amd64) |
 
 ---
 
-## ビルドパイプライン
+## Build Pipeline
 
-パッケージビルドは `pnpm make:linux` の1コマンドで実行できる。内部では3段階のパイプラインが走る。
+The package build is executed with a single command: `pnpm make:linux`. Internally, it runs a three-stage pipeline.
 
 ```
 pnpm make:linux
@@ -40,7 +40,7 @@ pnpm make:linux
         +-- Maker実行             # .deb と AppImage の生成
 ```
 
-### package.json のスクリプト定義
+### package.json Script Definitions
 
 ```jsonc
 {
@@ -64,15 +64,15 @@ pnpm make:linux
 }
 ```
 
-`build:native-helper` は Linux 上では何もしない（`No native helpers` と表示して終了）。代わりに `build:linux-helper` が Linux 専用のネイティブヘルパーをビルドする。この2段構えになっている理由は、`linux-helper-ts` がモノレポのワークスペースパッケージではなく独立した npm プロジェクトとして管理されているためだ。
+`build:native-helper` does nothing on Linux (it prints `No native helpers` and exits). Instead, `build:linux-helper` builds the Linux-specific native helper. This two-step approach exists because `linux-helper-ts` is managed as an independent npm project rather than a monorepo workspace package.
 
 ---
 
-## Electron Forge 設定
+## Electron Forge Configuration
 
-`forge.config.ts` が全体の設定ファイルとなる。主要な構成要素を順に見ていく。
+`forge.config.ts` is the main configuration file. Let's walk through its key components.
 
-### Makers（パッケージ形式の定義）
+### Makers (Package Format Definitions)
 
 ```typescript
 import { MakerDeb } from "@electron-forge/maker-deb";
@@ -98,9 +98,9 @@ const config: ForgeConfig = {
 };
 ```
 
-全プラットフォームの Maker が1つの配列に共存しており、`electron-forge make --platform=linux` を実行すると Linux 対応の Maker だけが自動選択される。
+All platform Makers coexist in a single array. When you run `electron-forge make --platform=linux`, only the Linux-compatible Makers are automatically selected.
 
-### Plugins（Vite + Fuses）
+### Plugins (Vite + Fuses)
 
 ```typescript
 plugins: [
@@ -127,23 +127,23 @@ plugins: [
 ],
 ```
 
-`FusesPlugin` により、パッケージ時に Electron のセキュリティ設定がバイナリレベルで焼き込まれる。`RunAsNode: false` は `ELECTRON_RUN_AS_NODE` 環境変数を無効化し、配布バイナリの悪用を防ぐ。
+The `FusesPlugin` bakes Electron security settings at the binary level during packaging. `RunAsNode: false` disables the `ELECTRON_RUN_AS_NODE` environment variable to prevent misuse of distributed binaries.
 
 ---
 
-## SKIP_RPM フラグの経緯
+## The SKIP_RPM Flag: Background
 
-### 問題
+### The Problem
 
-`electron-forge make` は `makers` 配列にある全 Maker を順に実行する。`MakerRpm` が含まれていると `rpmbuild` コマンドの存在チェックが行われ、インストールされていない Ubuntu 環境では即座にビルド全体が失敗する。
+`electron-forge make` executes all Makers in the `makers` array in sequence. When `MakerRpm` is included, it checks for the `rpmbuild` command. On Ubuntu where it is not installed, the entire build fails immediately.
 
 ```
 Cannot make for rpm, the following external binaries need to be installed: rpmbuild
 ```
 
-Ubuntu で RPM をビルドすることは稀なので、`sudo apt install rpm` で `rpmbuild` を入れるのはオーバーヘッドが大きい。
+Building RPMs on Ubuntu is uncommon, so installing `rpmbuild` via `sudo apt install rpm` adds unnecessary overhead.
 
-### 解決策: 環境変数による条件分岐
+### Solution: Conditional Branching via Environment Variable
 
 ```typescript
 // forge.config.ts
@@ -159,21 +159,21 @@ Ubuntu で RPM をビルドすることは稀なので、`sudo apt install rpm` 
   : []),
 ```
 
-`package.json` の `make:linux` スクリプトに `SKIP_RPM=true` を埋め込むことで、Ubuntu 環境ではデフォルトで RPM ビルドがスキップされる。
+By embedding `SKIP_RPM=true` in the `make:linux` script in `package.json`, RPM builds are skipped by default on Ubuntu.
 
 ```jsonc
 "make:linux": "pnpm build:deps && pnpm build:linux-helper && SKIP_RPM=true electron-forge make --platform=linux --arch=x64"
 ```
 
-> **注意:** `SKIP_RPM` の判定は `!== "true"` であり、**環境変数が未設定の場合は RPM がビルドされる**。CI/CD で Fedora/RHEL 向けにも配布する場合はこの挙動がデフォルトとして正しい。
+> **Note:** The check uses `!== "true"`, meaning **RPM will be built if the environment variable is not set**. This is the correct default behavior for CI/CD pipelines that also distribute for Fedora/RHEL.
 
 ---
 
-## prePackage フック -- ビルド前の重要な処理
+## prePackage Hook -- Critical Pre-Build Processing
 
-`forge.config.ts` の `hooks.prePackage` は、Electron Forge がアプリをパッケージングする前に実行される。このプロジェクトでは複数の重要な処理を担っている。
+The `hooks.prePackage` in `forge.config.ts` runs before Electron Forge packages the app. In this project, it handles several critical tasks.
 
-### 1. Node.js バイナリの存在チェック
+### 1. Node.js Binary Existence Check
 
 ```typescript
 prePackage: async (_forgeConfig, platform, arch) => {
@@ -184,9 +184,9 @@ prePackage: async (_forgeConfig, platform, arch) => {
 }
 ```
 
-Amical は Whisper ワーカーなどを子プロセスとして起動するため、プラットフォーム固有の Node.js バイナリを同梱する必要がある。事前に `pnpm download-node` でダウンロードしておく。
+Amical launches child processes such as Whisper workers, so platform-specific Node.js binaries must be bundled. Download them in advance with `pnpm download-node`.
 
-### 2. モノレポ依存モジュールの解決
+### 2. Monorepo Dependency Resolution
 
 ```typescript
 export const EXTERNAL_DEPENDENCIES = [
@@ -200,7 +200,7 @@ export const EXTERNAL_DEPENDENCIES = [
 ];
 ```
 
-モノレポでは `node_modules` がルートにホイストされるため、Electron Forge のデフォルトのモジュール解決では見つからない。`flora-colossus`（Electron Forge の内部依存）を使って各モジュールのネストされた依存関係を再帰的に探索し、ローカルの `node_modules` にコピーする。
+In a monorepo, `node_modules` are hoisted to the root, so Electron Forge's default module resolution cannot find them. Using `flora-colossus` (an internal dependency of Electron Forge), nested dependencies for each module are recursively explored and copied to the local `node_modules`.
 
 ```typescript
 // flora-colossus で依存ツリーを歩く
@@ -208,9 +208,9 @@ const walker = new Walker(monorepoRoot);
 await walker.walkDependenciesForModule(moduleRoot, DepType.PROD);
 ```
 
-### 3. 不要なバイナリの刈り込み（Pruning）
+### 3. Pruning Unnecessary Binaries
 
-`onnxruntime-node` は全プラットフォームのバイナリを含んでおり、そのままだとパッケージサイズが肥大化する。ターゲットプラットフォーム以外のバイナリを削除する。
+`onnxruntime-node` includes binaries for all platforms, which bloats the package size if left as-is. Binaries for non-target platforms are deleted.
 
 ```typescript
 // 不要なプラットフォームのバイナリを削除
@@ -219,11 +219,11 @@ if (platformDir !== targetPlatform && platformDir !== "linux") {
 }
 ```
 
-同様に、`@amical/whisper-wrapper` の `whisper.cpp` ソースコードや `build` ディレクトリも削除する。
+Similarly, the `whisper.cpp` source code and `build` directory from `@amical/whisper-wrapper` are also removed.
 
-### 4. シンボリックリンクの実体化
+### 4. Materializing Symlinks
 
-pnpm のモノレポではワークスペースパッケージがシンボリックリンクで配置される。ASAR パッケージングではシンボリックリンクが正しく処理されないため、実ファイルに置き換える。
+In a pnpm monorepo, workspace packages are placed as symlinks. Since ASAR packaging does not handle symlinks correctly, they are replaced with actual files.
 
 ```typescript
 if (stats.isSymbolicLink()) {
@@ -235,9 +235,9 @@ if (stats.isSymbolicLink()) {
 
 ---
 
-## postPackage フック
+## postPackage Hook
 
-`postPackage` はパッケージング完了後に実行される。現在の実装では Windows 向けに VC++ ランタイム DLL をバンドルする処理が入っている。
+`postPackage` runs after packaging is complete. The current implementation bundles VC++ runtime DLLs for Windows.
 
 ```typescript
 postPackage: async (_forgeConfig, options) => {
@@ -253,34 +253,34 @@ postPackage: async (_forgeConfig, options) => {
 }
 ```
 
-Linux 向けには現時点で postPackage での追加処理はないが、`.deb` パッケージでは `chrome-sandbox` に SUID ビットが自動設定されるため、インストール後の `ELECTRON_DISABLE_SANDBOX=1` が不要になる。
+There is currently no additional postPackage processing for Linux, but in `.deb` packages, the SUID bit is automatically set on `chrome-sandbox`, making `ELECTRON_DISABLE_SANDBOX=1` unnecessary after installation.
 
-> **メモ:** `packagerConfig` で `prune: false` が設定されているため、`packageAfterPrune` フックは実行されない。コード上には空ディレクトリ削除のロジックが残っているが、これは現在デッドコードとなっている。
+> **Note:** Since `packagerConfig` has `prune: false`, the `packageAfterPrune` hook is not executed. Empty directory cleanup logic remains in the code but is currently dead code.
 
 ---
 
-## LinuxHelper のビルド
+## Building LinuxHelper
 
-`build:linux-helper` は Linux 固有のネイティブヘルパープロセスをビルドするスクリプトだ。
+`build:linux-helper` is the script that builds the Linux-specific native helper process.
 
 ```jsonc
 "build:linux-helper": "cd ../../packages/native-helpers/linux-helper-ts && npm run build"
 ```
 
-### LinuxHelper の役割
+### Role of LinuxHelper
 
-LinuxHelper は独立した Node.js プロセスとして動作し、Electron メインプロセスと JSON-RPC で通信する。
+LinuxHelper runs as an independent Node.js process and communicates with the Electron main process via JSON-RPC.
 
 ```
 Electron (メインプロセス)  <--stdin/stdout JSON-RPC-->  LinuxHelper
 ```
 
-主な機能:
+Key features:
 
-- **evdev キーボード監視** -- `/dev/input/event*` を直接読み取り、グローバルショートカットを検出する（X11/Wayland 両対応）
-- **アクセシビリティ操作** -- `ydotool` や `wl-clipboard` を使ったキー入力シミュレーションとクリップボード操作
+- **evdev keyboard monitoring** -- Reads directly from `/dev/input/event*` to detect global shortcuts (compatible with both X11 and Wayland)
+- **Accessibility operations** -- Keyboard input simulation and clipboard operations using `ydotool` and `wl-clipboard`
 
-### ビルドの仕組み
+### Build Process
 
 ```jsonc
 // packages/native-helpers/linux-helper-ts/package.json
@@ -291,7 +291,7 @@ Electron (メインプロセス)  <--stdin/stdout JSON-RPC-->  LinuxHelper
 }
 ```
 
-TypeScript をコンパイルし、エントリポイントスクリプト `bin/LinuxHelper` に実行権限を付与する。ビルド成果物は `extraResource` 経由でパッケージに同梱される。
+TypeScript is compiled, and execute permission is granted to the entry point script `bin/LinuxHelper`. The build output is bundled into the package via `extraResource`.
 
 ```typescript
 // forge.config.ts > packagerConfig > extraResource
@@ -306,9 +306,9 @@ TypeScript をコンパイルし、エントリポイントスクリプト `bin/
 
 ---
 
-## AppImage 固有の設定
+## AppImage-Specific Configuration
 
-AppImage の生成にはコミュニティパッケージ `@reforged/maker-appimage` を使用する。公式の `@electron-forge/maker-appimage` は存在しない。
+AppImage generation uses the community package `@reforged/maker-appimage`. No official `@electron-forge/maker-appimage` exists.
 
 ```typescript
 import { MakerAppImage } from "@reforged/maker-appimage";
@@ -325,24 +325,24 @@ new MakerAppImage({
 }),
 ```
 
-### 重要なポイント
+### Key Points
 
-- **`bin: "Amical"` は必須。** これを省略すると `package.json` の `name`（`@amical/desktop`）がバイナリ名として使われ、パッケージ内のバイナリが見つからずエラーになる
-- AppImage は `--no-sandbox` フラグが自動付与されるため、SUID の設定は不要
-- 全ての依存ライブラリを内包するため、`.deb` より大きい（約196MB vs 143MB）
+- **`bin: "Amical"` is required.** Omitting it causes `package.json`'s `name` (`@amical/desktop`) to be used as the binary name, resulting in an error when the binary cannot be found in the package
+- AppImage automatically includes the `--no-sandbox` flag, so SUID configuration is unnecessary
+- Since all dependency libraries are bundled, AppImage is larger than `.deb` (approximately 196MB vs 143MB)
 
-### インストール方法
+### Installation
 
 ```bash
 chmod +x Amical-1.1.0-x64.AppImage
 ./Amical-1.1.0-x64.AppImage
 ```
 
-sudo 不要。削除もファイルを消すだけ。
+No sudo required. To uninstall, simply delete the file.
 
 ---
 
-## deb パッケージ固有の設定
+## deb Package-Specific Configuration
 
 ```typescript
 new MakerDeb({
@@ -367,21 +367,21 @@ new MakerDeb({
 }),
 ```
 
-### 各オプションの意味
+### Option Descriptions
 
-| オプション | 説明 |
-|-----------|------|
-| `bin` | パッケージ内の実行バイナリ名。`packagerConfig.executableName` と一致させる |
-| `name` | Debian パッケージ名。`dpkg -l` で表示される名前。小文字のみ |
-| `depends` | `dpkg` が依存パッケージとしてチェックするライブラリ群 |
-| `recommends` | インストール推奨パッケージ（Wayland 環境用のクリップボードツールなど） |
-| `mimeType` | カスタム URL スキーム（`amical://`）の登録 |
+| Option | Description |
+|--------|-------------|
+| `bin` | Executable binary name within the package. Must match `packagerConfig.executableName` |
+| `name` | Debian package name. The name shown by `dpkg -l`. Must be lowercase only |
+| `depends` | Libraries that `dpkg` checks as package dependencies |
+| `recommends` | Recommended packages for installation (e.g., clipboard tools for Wayland environments) |
+| `mimeType` | Custom URL scheme (`amical://`) registration |
 
-### `--targets` フラグの罠
+### The `--targets` Flag Pitfall
 
-`electron-forge make --targets=@electron-forge/maker-deb` のように `--targets` を指定すると、**`forge.config.ts` のカスタム設定が無視される。**
+When specifying `--targets` like `electron-forge make --targets=@electron-forge/maker-deb`, **custom settings from `forge.config.ts` are ignored.**
 
-原因は Electron Forge 内部の `generateTargets` 関数にある。
+The cause lies in Electron Forge's internal `generateTargets` function.
 
 ```javascript
 // @electron-forge/core/dist/api/make.js
@@ -401,15 +401,15 @@ function generateTargets(forgeConfig, overrideTargets) {
 }
 ```
 
-`--targets` に渡す名前は NPM パッケージ名（`@electron-forge/maker-deb`）だが、`makers.find()` は `maker.name`（= `'deb'`）と比較する。名前が一致しないため、**空の設定で新しい Maker が作られてしまう。**
+The name passed to `--targets` is the NPM package name (`@electron-forge/maker-deb`), but `makers.find()` compares against `maker.name` (= `'deb'`). Since the names do not match, **a new Maker with empty configuration is created.**
 
-**対策: `--targets` フラグは使わない。** 不要な Maker は `SKIP_RPM` のように環境変数で除外する。
+**Workaround: Do not use the `--targets` flag.** Exclude unwanted Makers using environment variables like `SKIP_RPM`.
 
 ---
 
-## 実行方法まとめ
+## Execution Summary
 
-### 開発時
+### During Development
 
 ```bash
 # 方法1: run.sh を使用
@@ -419,30 +419,30 @@ function generateTargets(forgeConfig, overrideTargets) {
 cd apps/desktop && ELECTRON_DISABLE_SANDBOX=1 pnpm start
 ```
 
-`ELECTRON_DISABLE_SANDBOX=1` は開発時のみ必要。`chrome-sandbox` に SUID ビットが設定されていないため。
+`ELECTRON_DISABLE_SANDBOX=1` is only needed during development because the SUID bit is not set on `chrome-sandbox`.
 
-### パッケージビルド（配布パッケージなし）
+### Package Build (Without Distribution Packages)
 
 ```bash
 cd apps/desktop && pnpm package:linux
 ```
 
-`out/Amical-linux-x64/` にパッケージされたアプリが出力される。Maker は実行されないため `.deb` や AppImage は生成されない。動作確認用。
+The packaged app is output to `out/Amical-linux-x64/`. Since Makers are not executed, no `.deb` or AppImage files are generated. This is for verification purposes.
 
-### 配布パッケージの生成
+### Generating Distribution Packages
 
 ```bash
 cd apps/desktop && pnpm make:linux
 ```
 
-出力先:
+Output location:
 
 ```
 out/make/deb/x64/amical_1.1.0_amd64.deb        # ~143 MB
 out/make/AppImage/x64/Amical-1.1.0-x64.AppImage # ~196 MB
 ```
 
-### 初回セットアップ（事前準備）
+### First-Time Setup (Prerequisites)
 
 ```bash
 # Node.js バイナリのダウンロード
@@ -458,21 +458,21 @@ sudo apt install dpkg fakeroot
 
 ---
 
-## トラブルシューティング
+## Troubleshooting
 
-### `rpmbuild` が見つからない
+### `rpmbuild` Not Found
 
 ```
 Cannot make for rpm, the following external binaries need to be installed: rpmbuild
 ```
 
-`SKIP_RPM=true` を付けてビルドする。`pnpm make:linux` はデフォルトでこのフラグが設定済み。
+Build with `SKIP_RPM=true`. This flag is set by default in `pnpm make:linux`.
 
 ```bash
 SKIP_RPM=true electron-forge make --platform=linux --arch=x64
 ```
 
-### Node.js バイナリが見つからない
+### Node.js Binary Not Found
 
 ```
 Node.js binary not found for linux-x64
@@ -482,7 +482,7 @@ Node.js binary not found for linux-x64
 pnpm download-node
 ```
 
-### PNG アイコンが存在しない
+### PNG Icon Does Not Exist
 
 ```
 The icon "./assets/logo.png" does not exist
@@ -492,15 +492,15 @@ The icon "./assets/logo.png" does not exist
 convert assets/logo.svg -resize 256x256 assets/logo.png
 ```
 
-### `--targets` 指定時にバイナリが見つからない
+### Binary Not Found When Using `--targets`
 
 ```
 could not find the Electron app binary at ".../out/Amical-linux-x64/@amical/desktop"
 ```
 
-`--targets` フラグを使わないこと。`forge.config.ts` の Maker 設定が無視され、`package.json` の `name`（`@amical/desktop`）がバイナリ名として使われてしまう。
+Do not use the `--targets` flag. It causes the Maker settings in `forge.config.ts` to be ignored, and `package.json`'s `name` (`@amical/desktop`) is used as the binary name instead.
 
-### サンドボックスエラー（開発時）
+### Sandbox Error (During Development)
 
 ```
 The SUID sandbox helper binary was found, but is not configured correctly.
@@ -510,11 +510,11 @@ The SUID sandbox helper binary was found, but is not configured correctly.
 ELECTRON_DISABLE_SANDBOX=1 pnpm start
 ```
 
-`.deb` でインストールした場合は `chrome-sandbox` に SUID が自動設定されるため、この問題は発生しない。
+When installed via `.deb`, the SUID bit is automatically set on `chrome-sandbox`, so this issue does not occur.
 
-### モノレポでネイティブモジュールが見つからない
+### Native Module Not Found in Monorepo
 
-`packagerConfig.prune` が `false` に設定されており、`packagerConfig.ignore` 関数で必要なモジュールのみをホワイトリスト方式で同梱している。新しいネイティブモジュールを追加した場合は `EXTERNAL_DEPENDENCIES` 配列に追加する必要がある。
+`packagerConfig.prune` is set to `false`, and the `packagerConfig.ignore` function uses a whitelist approach to include only the required modules. When adding new native modules, they must be added to the `EXTERNAL_DEPENDENCIES` array.
 
 ```typescript
 export const EXTERNAL_DEPENDENCIES = [
@@ -525,15 +525,15 @@ export const EXTERNAL_DEPENDENCIES = [
 
 ---
 
-## まとめ
+## Summary
 
-Electron Forge で Linux 向けの `.deb` と AppImage を同時ビルドする際の要点:
+Key points for building `.deb` and AppImage simultaneously for Linux with Electron Forge:
 
-1. **`bin` オプションは必ず設定する。** 省略すると `package.json` の `name` がバイナリ名に使われ、スコープ付きパッケージ名（`@scope/name`）の場合にパスが壊れる
-2. **`--targets` フラグは使わない。** Maker の設定が無視される Electron Forge の既知の挙動がある。不要な Maker は環境変数で条件分岐する
-3. **`SKIP_RPM=true` で RPM ビルドをスキップ。** Ubuntu 環境に `rpmbuild` を入れる必要がなくなる
-4. **モノレポでは依存解決に工夫が必要。** `flora-colossus` でネストされた依存を再帰探索し、シンボリックリンクを実体化する
-5. **AppImage は `@reforged/maker-appimage` を使う。** 公式 Maker は存在しないため、コミュニティパッケージに頼る
-6. **開発時は `ELECTRON_DISABLE_SANDBOX=1` が必要。** `.deb` インストール後は不要
+1. **Always set the `bin` option.** Omitting it causes `package.json`'s `name` to be used as the binary name. For scoped package names (`@scope/name`), the path will break
+2. **Do not use the `--targets` flag.** There is a known Electron Forge behavior where Maker settings are ignored. Exclude unwanted Makers using environment variables
+3. **Skip RPM builds with `SKIP_RPM=true`.** This eliminates the need to install `rpmbuild` on Ubuntu
+4. **Dependency resolution requires extra work in monorepos.** Use `flora-colossus` to recursively explore nested dependencies and materialize symlinks
+5. **Use `@reforged/maker-appimage` for AppImage.** No official Maker exists, so a community package is needed
+6. **`ELECTRON_DISABLE_SANDBOX=1` is required during development.** It is not needed after `.deb` installation
 
-これらの知見は、Electron Forge + モノレポ + ネイティブモジュールという組み合わせで Linux パッケージングに取り組む際の参考になれば幸いだ。
+These insights should serve as a useful reference when tackling Linux packaging with Electron Forge + monorepo + native modules.

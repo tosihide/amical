@@ -1,48 +1,48 @@
-# Linux パッケージビルドガイド (.deb / AppImage)
+# Linux Package Build Guide (.deb / AppImage)
 
 ---
 
-> **TL;DR — よく使うコマンド**
+> **TL;DR -- Frequently Used Commands**
 >
-> | やりたいこと | コマンド |
-> |------------|---------|
-> | 開発起動 | `ELECTRON_DISABLE_SANDBOX=1 pnpm start` (または `./run.sh`) |
-> | パッケージビルド | `cd apps/desktop && pnpm make:linux` |
-> | 初回のみ | `pnpm download-node && convert assets/logo.svg -resize 256x256 assets/logo.png` |
+> | Task | Command |
+> |------|---------|
+> | Development launch | `ELECTRON_DISABLE_SANDBOX=1 pnpm start` (or `./run.sh`) |
+> | Package build | `cd apps/desktop && pnpm make:linux` |
+> | First time only | `pnpm download-node && convert assets/logo.svg -resize 256x256 assets/logo.png` |
 >
-> **重要:** `electron-forge make` に `--targets` フラグは使わないこと。  
-> `forge.config.ts` のカスタム設定が無視され、ビルドが失敗する（[詳細](#23-問題3---targets-フラグ使用時に-maker-の設定が無視される)）。
+> **Important:** Do not use the `--targets` flag with `electron-forge make`.  
+> Custom settings from `forge.config.ts` will be ignored and the build will fail ([details](#23-problem-3-maker-settings-ignored-when-using---targets-flag)).
 
 ---
 
-## 概要
+## Overview
 
-Amical Desktop の Ubuntu/Debian 向け配布パッケージのビルド手順と、
-ビルド環境構築時に発見された問題点・解決策をまとめたドキュメント。
+This document covers the build procedure for Amical Desktop's Ubuntu/Debian distribution packages,
+along with issues discovered during build environment setup and their solutions.
 
-2種類のパッケージ形式に対応している:
+Two package formats are supported:
 
-| 形式 | ファイル | インストール方法 | sudo | 用途 |
-|------|---------|----------------|------|------|
-| `.deb` | `amical_1.1.0_amd64.deb` | `dpkg -i` | 必要 | システムインストール |
-| AppImage | `Amical-1.1.0-x64.AppImage` | ファイルに実行権限を付けて起動 | 不要 | ユーザーインストール（ポータブル） |
+| Format | File | Installation Method | sudo | Use Case |
+|--------|------|---------------------|------|----------|
+| `.deb` | `amical_1.1.0_amd64.deb` | `dpkg -i` | Required | System installation |
+| AppImage | `Amical-1.1.0-x64.AppImage` | Set execute permission and run | Not required | User installation (portable) |
 
 ---
 
-## 1. ビルド手順
+## 1. Build Procedure
 
-### 1.1 前提条件
+### 1.1 Prerequisites
 
 - Ubuntu 24.04 LTS (amd64)
 - Node.js v22.x
 - pnpm 10.x
-- 必要なシステムパッケージ:
+- Required system packages:
 
 ```bash
 sudo apt install dpkg fakeroot imagemagick
 ```
 
-### 1.2 共通の事前準備（初回のみ）
+### 1.2 Common Preparation (First Time Only)
 
 ```bash
 cd apps/desktop
@@ -54,39 +54,39 @@ pnpm download-node
 convert assets/logo.svg -resize 256x256 assets/logo.png
 ```
 
-### 1.3 パッケージのビルド
+### 1.3 Building Packages
 
-以下のコマンドで `.deb` と AppImage の両方が同時にビルドされる:
+The following command builds both `.deb` and AppImage simultaneously:
 
 ```bash
 cd apps/desktop
 pnpm make:linux
 ```
 
-内部では `pnpm build:deps && pnpm build:linux-helper && SKIP_RPM=true electron-forge make --platform=linux --arch=x64` が実行される。
+Internally, this executes `pnpm build:deps && pnpm build:linux-helper && SKIP_RPM=true electron-forge make --platform=linux --arch=x64`.
 
-### 1.4 出力先
+### 1.4 Output Location
 
 ```
 apps/desktop/out/make/deb/x64/amical_1.1.0_amd64.deb        # 143 MB
 apps/desktop/out/make/AppImage/x64/Amical-1.1.0-x64.AppImage # 196 MB
 ```
 
-### 1.5 インストール方法
+### 1.5 Installation Methods
 
-#### .deb パッケージ（システムインストール）
+#### .deb Package (System Installation)
 
 ```bash
 sudo dpkg -i out/make/deb/x64/amical_1.1.0_amd64.deb
 sudo apt-get install -f   # 不足する依存パッケージがあれば自動インストール
 ```
 
-- アプリケーションメニューまたはコマンドラインの `Amical` で起動
-- **開発時に必要だった `ELECTRON_DISABLE_SANDBOX=1` は不要**
-  （`.deb` では `chrome-sandbox` に SUID ビットが正しく設定される）
-- アンインストール: `sudo apt remove amical`
+- Launch from the application menu or via the `Amical` command
+- **`ELECTRON_DISABLE_SANDBOX=1`, which was needed during development, is not required**
+  (The `.deb` package correctly sets the SUID bit on `chrome-sandbox`)
+- To uninstall: `sudo apt remove amical`
 
-#### AppImage（ユーザーインストール）
+#### AppImage (User Installation)
 
 ```bash
 # 任意の場所にコピー（例: ~/Applications/）
@@ -98,16 +98,16 @@ chmod +x ~/Applications/Amical-1.1.0-x64.AppImage
 ~/Applications/Amical-1.1.0-x64.AppImage
 ```
 
-- sudo 不要。単一ファイルで完結するポータブル形式
-- 削除はファイルを消すだけ
-- `--no-sandbox` フラグが自動付与されるため、追加の設定は不要
-- デスクトップ統合（メニュー登録等）が必要な場合は
-  [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher) の利用を推奨
+- No sudo required. A single-file, self-contained portable format
+- To uninstall, simply delete the file
+- The `--no-sandbox` flag is automatically included, so no additional configuration is needed
+- If desktop integration (menu registration, etc.) is needed,
+  [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher) is recommended
 
-### 1.6 pnpm スクリプトによるビルド
+### 1.6 Building via pnpm Scripts
 
-`package.json` に定義済みのスクリプトでもビルドできるが、
-RPM も同時にビルドしようとするため `rpmbuild` が必要になる:
+You can also build using the scripts defined in `package.json`,
+but it will also attempt to build RPM, which requires `rpmbuild`:
 
 ```bash
 # RPM も含めてビルドする場合（要 rpmbuild: sudo apt install rpm）
@@ -119,23 +119,23 @@ SKIP_RPM=true pnpm exec electron-forge make --platform=linux --arch=x64
 
 ---
 
-## 2. 調査経緯と解決した問題
+## 2. Investigation History and Resolved Issues
 
-### 2.1 問題1: rpmbuild が見つからない
+### 2.1 Problem 1: rpmbuild Not Found
 
-**現象:**
-`pnpm make:linux` を実行すると以下のエラーで失敗:
+**Symptom:**
+Running `pnpm make:linux` fails with the following error:
 
 ```
 Cannot make for rpm, the following external binaries need to be installed: rpmbuild
 ```
 
-**原因:**
-`forge.config.ts` の `makers` 配列に `MakerRpm` が含まれており、
-`rpmbuild` コマンドが存在しないと全体が失敗する。
+**Cause:**
+The `makers` array in `forge.config.ts` includes `MakerRpm`,
+and the entire build fails if the `rpmbuild` command is not present.
 
-**解決策:**
-`forge.config.ts` で `MakerRpm` を環境変数 `SKIP_RPM` で条件付きに変更:
+**Solution:**
+Made `MakerRpm` conditional on the `SKIP_RPM` environment variable in `forge.config.ts`:
 
 ```typescript
 // forge.config.ts (変更後)
@@ -150,46 +150,46 @@ Cannot make for rpm, the following external binaries need to be installed: rpmbu
 
 ---
 
-### 2.2 問題2: Node.js バイナリが見つからない
+### 2.2 Problem 2: Node.js Binary Not Found
 
-**現象:**
-`electron-forge make` の prePackage フックで以下のエラー:
+**Symptom:**
+The prePackage hook in `electron-forge make` throws the following error:
 
 ```
 ✗ Node.js binary not found for linux-x64
   Please run 'pnpm download-node' or 'pnpm download-node:all' first
 ```
 
-**原因:**
-Amical はメインプロセスとは別に Node.js を子プロセスとして使用しており（Whisper worker 等）、
-プラットフォーム固有の Node.js バイナリを `node-binaries/` ディレクトリに同梱する必要がある。
+**Cause:**
+Amical uses Node.js as a child process separately from the main process (for Whisper workers, etc.),
+and platform-specific Node.js binaries must be bundled in the `node-binaries/` directory.
 
-**解決策:**
+**Solution:**
 
 ```bash
 pnpm download-node
 ```
 
-これにより `apps/desktop/node-binaries/linux-x64/node` にバイナリがダウンロードされる。
+This downloads the binary to `apps/desktop/node-binaries/linux-x64/node`.
 
 ---
 
-### 2.3 問題3: `--targets` フラグ使用時に Maker の設定が無視される
+### 2.3 Problem 3: Maker Settings Ignored When Using `--targets` Flag
 
-**現象:**
-`--targets=@electron-forge/maker-deb` を指定してビルドすると、
-`forge.config.ts` で設定した `bin`, `name` 等のオプションが全て無視され、
-以下のエラーが発生:
+**Symptom:**
+When building with `--targets=@electron-forge/maker-deb`,
+all options configured in `forge.config.ts` such as `bin`, `name`, etc. are ignored,
+resulting in the following error:
 
 ```
 could not find the Electron app binary at
 "/.../out/Amical-linux-x64/@amical/desktop"
 ```
 
-バイナリ名が `Amical` であるべきところ、package.json の `name`（`@amical/desktop`）が使われている。
+The binary name should be `Amical`, but `package.json`'s `name` (`@amical/desktop`) is used instead.
 
-**原因:**
-`electron-forge` の `make.js` 内の `generateTargets` 関数の挙動:
+**Cause:**
+The behavior of the `generateTargets` function in `electron-forge`'s `make.js`:
 
 ```javascript
 // node_modules/@electron-forge/core/dist/api/make.js (24-34行目)
@@ -209,58 +209,58 @@ function generateTargets(forgeConfig, overrideTargets) {
 }
 ```
 
-`--targets=@electron-forge/maker-deb` で指定した名前は NPM パッケージ名だが、
-`forgeConfig.makers.find()` は `maker.name`（= `'deb'`）と比較する。
-名前が一致しないため、**設定なしの新しい MakerDeb インスタンスが作られる。**
+The name passed via `--targets=@electron-forge/maker-deb` is the NPM package name,
+but `forgeConfig.makers.find()` compares against `maker.name` (= `'deb'`).
+Since the names do not match, **a new MakerDeb instance with no configuration is created.**
 
-設定なしの場合、`electron-installer-common` のデフォルト値生成ロジックにより:
+Without configuration, the default value generation logic in `electron-installer-common` produces:
 
 ```javascript
 // node_modules/electron-installer-common/src/defaults.js (15行目)
 bin: pkg.name || 'electron',  // → '@amical/desktop'
 ```
 
-ASAR 内の `package.json` の `name` フィールドがバイナリ名として使われてしまう。
+The `name` field from `package.json` inside the ASAR is used as the binary name.
 
-**デバッグの過程:**
+**Debugging process:**
 
-1. `electron-installer-debian` と `MakerDeb` にデバッグログを追加
-2. `this.config` と `this.configOrConfigFetcher` が共に `{}` であることを確認
-3. `_.defaults()` のマージ順を検証し、config 自体が空であることが根本原因と特定
-4. `generateTargets` の名前マッチングロジックを発見
+1. Added debug logs to `electron-installer-debian` and `MakerDeb`
+2. Confirmed that both `this.config` and `this.configOrConfigFetcher` were `{}`
+3. Verified the `_.defaults()` merge order and identified the empty config as the root cause
+4. Discovered the name matching logic in `generateTargets`
 
-**解決策:**
-`--targets` フラグを使わず、`forge.config.ts` から不要な Maker を条件付きで除外して
-`electron-forge make` を実行する。
+**Solution:**
+Do not use the `--targets` flag. Instead, conditionally exclude unwanted Makers from `forge.config.ts`
+and run `electron-forge make`.
 
 ---
 
-### 2.4 問題4: PNG アイコンが存在しない
+### 2.4 Problem 4: PNG Icon Does Not Exist
 
-**現象:**
+**Symptom:**
 ```
 The icon "./assets/logo.png" does not exist
 ```
 
-**原因:**
-`MakerDeb` の設定で `icon: "./assets/logo.png"` を指定したが、
-リポジトリには `.icns`, `.ico`, `.svg` のみが存在し PNG がなかった。
+**Cause:**
+The `MakerDeb` configuration specifies `icon: "./assets/logo.png"`,
+but the repository only contains `.icns`, `.ico`, and `.svg` files -- no PNG.
 
-**解決策:**
-ImageMagick で SVG から PNG を生成:
+**Solution:**
+Generate a PNG from SVG using ImageMagick:
 
 ```bash
 convert assets/logo.svg -resize 256x256 assets/logo.png
 ```
 
-> 注: ImageMagick の SVG レンダリングは限定的なため、
-> 正式なアイコンはデザインツールで別途作成することを推奨する。
+> Note: ImageMagick's SVG rendering is limited,
+> so it is recommended to create the official icon separately using a design tool.
 
 ---
 
-## 3. forge.config.ts の変更箇所
+## 3. Changes to forge.config.ts
 
-### MakerDeb の設定追加
+### MakerDeb Configuration Added
 
 ```typescript
 new MakerDeb({
@@ -279,11 +279,11 @@ new MakerDeb({
 }),
 ```
 
-`bin: "Amical"` が最も重要な設定。
-これがないと `package.json` の `name`（`@amical/desktop`）がバイナリ名として使われ、
-インストーラーがパッケージ済みバイナリを見つけられずにエラーになる。
+`bin: "Amical"` is the most critical setting.
+Without it, `package.json`'s `name` (`@amical/desktop`) is used as the binary name,
+and the installer fails because it cannot find the packaged binary.
 
-### MakerAppImage の追加
+### MakerAppImage Added
 
 ```typescript
 import { MakerAppImage } from "@reforged/maker-appimage";
@@ -300,11 +300,11 @@ new MakerAppImage({
 }),
 ```
 
-- コミュニティパッケージ `@reforged/maker-appimage` を使用
-  （公式の `@electron-forge/maker-appimage` は存在しない）
-- `devDependencies` に追加済み
+- Uses the community package `@reforged/maker-appimage`
+  (no official `@electron-forge/maker-appimage` exists)
+- Already added to `devDependencies`
 
-### MakerRpm の条件付き読み込み
+### Conditional MakerRpm Loading
 
 ```typescript
 ...(process.env.SKIP_RPM !== "true"
@@ -314,9 +314,9 @@ new MakerAppImage({
 
 ---
 
-## 4. 生成されるパッケージの情報
+## 4. Generated Package Information
 
-### .deb パッケージ
+### .deb Package
 
 ```
 Package: amical
@@ -335,42 +335,42 @@ Description: AI-powered dictation and note-taking
 ### AppImage
 
 ```
-ファイル名: Amical-1.1.0-x64.AppImage
-サイズ: 196 MB
-形式: ELF 64-bit, static-pie linked
-対象: x86-64 Linux
+Filename: Amical-1.1.0-x64.AppImage
+Size: 196 MB
+Format: ELF 64-bit, static-pie linked
+Target: x86-64 Linux
 ```
 
-AppImage は全ての依存ライブラリを内包するため `.deb` より大きい。
+AppImage is larger than `.deb` because it bundles all dependency libraries.
 
 ---
 
-## 5. .deb と AppImage の比較
+## 5. Comparison: .deb vs AppImage
 
-| 観点 | .deb | AppImage |
-|------|------|----------|
-| インストール | `sudo dpkg -i` | ファイルを置いて `chmod +x` |
-| root 権限 | 必要 | 不要 |
-| アンインストール | `sudo apt remove amical` | ファイルを削除 |
-| デスクトップ統合 | 自動（メニュー、アイコン） | 手動 or AppImageLauncher |
-| サンドボックス | SUID で有効 | `--no-sandbox` で動作 |
-| 自動更新 | apt 経由（リポジトリ登録時） | 非対応（手動差し替え） |
-| 配布サイズ | 143 MB | 196 MB |
-| 依存関係 | apt が管理 | 全て内包 |
+| Aspect | .deb | AppImage |
+|--------|------|----------|
+| Installation | `sudo dpkg -i` | Place file and `chmod +x` |
+| Root privileges | Required | Not required |
+| Uninstallation | `sudo apt remove amical` | Delete the file |
+| Desktop integration | Automatic (menu, icons) | Manual or via AppImageLauncher |
+| Sandbox | Enabled via SUID | Runs with `--no-sandbox` |
+| Auto-updates | Via apt (when repository is registered) | Not supported (manual replacement) |
+| Distribution size | 143 MB | 196 MB |
+| Dependencies | Managed by apt | All bundled |
 
-**推奨:**
-- 自分の PC にインストールする場合 → `.deb`
-- 他の人に渡す・USB で持ち運ぶ場合 → AppImage
+**Recommendations:**
+- Installing on your own PC -> `.deb`
+- Sharing with others or carrying on USB -> AppImage
 
 ---
 
-## 6. 既知の注意事項
+## 6. Known Caveats
 
-- `--targets` フラグを使うと `forge.config.ts` のカスタム設定が無視される
-  （electron-forge の既知の動作。makers 配列の `name` プロパティと
-  `--targets` の NPM パッケージ名が一致しないため）
-- RPM パッケージのビルドには `rpmbuild` が必要（`sudo apt install rpm`）
-- PNG アイコンはリポジトリに含まれていないため、ビルド前に生成が必要
-- サンドボックスは `.deb` インストール時に自動で有効になる
-  （`chrome-sandbox` に SUID ビットが設定される）
-- AppImage は `@reforged/maker-appimage`（コミュニティパッケージ）を使用している
+- Using the `--targets` flag causes custom settings in `forge.config.ts` to be ignored
+  (known Electron Forge behavior: the `name` property in the makers array
+  does not match the NPM package name passed via `--targets`)
+- Building RPM packages requires `rpmbuild` (`sudo apt install rpm`)
+- PNG icons are not included in the repository and must be generated before building
+- The sandbox is automatically enabled when installed via `.deb`
+  (the SUID bit is set on `chrome-sandbox`)
+- AppImage uses `@reforged/maker-appimage` (a community package)

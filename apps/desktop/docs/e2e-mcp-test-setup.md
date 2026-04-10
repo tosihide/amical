@@ -1,14 +1,14 @@
-# Electron E2E テスト with electron-test-mcp (Linux)
+# Electron E2E Testing with electron-test-mcp (Linux)
 
-## 概要
+## Overview
 
-### electron-test-mcp とは
+### What is electron-test-mcp?
 
-`electron-test-mcp` は、Playwright の Electron サポートをラップした MCP (Model Context Protocol) サーバーです。Claude Code が MCP クライアントとして接続し、Electron アプリの起動・操作・スクリーンショット取得・DOM 操作・メインプロセスでの JS 実行などをツール呼び出しで行えます。
+`electron-test-mcp` is an MCP (Model Context Protocol) server that wraps Playwright's Electron support. Claude Code connects as an MCP client, enabling tool-based interactions such as launching an Electron app, taking screenshots, manipulating the DOM, and executing JavaScript in the main process.
 
-通常の E2E テストフレームワーク（Cypress、Playwright 単体など）ではテストコードをスクリプトとして事前に書く必要がありますが、electron-test-mcp を使うと Claude Code との対話の中でリアルタイムにアプリを操作・検証できます。これにより、OAuth フローのような複雑な画面遷移のデバッグが対話的に行えます。
+Unlike traditional E2E testing frameworks (Cypress, standalone Playwright, etc.) where test code must be written as scripts in advance, electron-test-mcp allows you to operate and verify the app interactively during a conversation with Claude Code. This makes it possible to debug complex screen transitions, such as OAuth flows, in an interactive manner.
 
-### 動作原理
+### How It Works
 
 ```
 Claude Code (MCP Client)
@@ -18,40 +18,40 @@ electron-test-mcp (MCP Server)
 Electron App (Amical Desktop)
 ```
 
-Claude Code から `mcp__electron-test__launch()` などのツールを呼ぶと、electron-test-mcp が Playwright 経由で Electron アプリを起動・制御します。
+When Claude Code calls tools like `mcp__electron-test__launch()`, electron-test-mcp launches and controls the Electron app via Playwright.
 
-### 主要な MCP ツール一覧
+### Available MCP Tools
 
-| ツール | 用途 | 備考 |
-|--------|------|------|
-| `launch` | アプリ起動 | `appPath`, `env`, `executablePath` を指定 |
-| `close` | アプリ終了 | |
-| `screenshot` | スクリーンショット取得 | Base64 画像が返る |
-| `snapshot` | アクセシビリティツリー取得 | 画面構造の把握に有用 |
-| `click` | 要素クリック | Playwright セレクタ指定 |
-| `fill` | テキスト入力 | |
-| `press` | キー入力 | |
-| `hover` | ホバー | |
-| `evaluate` | レンダラープロセスで JS 実行 | フォーカスされたウィンドウが対象 |
-| `evaluateMain` | メインプロセスで JS 実行 | `(electron) => ...` 形式 |
-| `getText` | テキスト取得 | |
-| `getAttribute` | 属性取得 | |
-| `isVisible` | 表示状態確認 | |
-| `wait` | 待機 | セレクタの出現待ちなど |
-| `count` | 要素数取得 | |
-| `selectOption` | セレクトボックス操作 | |
-| `drag` | ドラッグ操作 | |
-| `type` | キーボード入力（1文字ずつ） | |
-| `connect` | 既存アプリに接続 | |
-| `disconnect` | 接続解除 | |
+| Tool | Purpose | Notes |
+|------|---------|-------|
+| `launch` | Launch app | Specify `appPath`, `env`, `executablePath` |
+| `close` | Close app | |
+| `screenshot` | Capture screenshot | Returns a Base64-encoded image |
+| `snapshot` | Get accessibility tree | Useful for understanding screen structure |
+| `click` | Click an element | Uses Playwright selectors |
+| `fill` | Input text | |
+| `press` | Press a key | |
+| `hover` | Hover | |
+| `evaluate` | Execute JS in renderer process | Targets the focused window |
+| `evaluateMain` | Execute JS in main process | Uses `(electron) => ...` format |
+| `getText` | Get text content | |
+| `getAttribute` | Get attribute value | |
+| `isVisible` | Check visibility | |
+| `wait` | Wait | Wait for a selector to appear, etc. |
+| `count` | Count elements | |
+| `selectOption` | Interact with select boxes | |
+| `drag` | Drag operation | |
+| `type` | Keyboard input (character by character) | |
+| `connect` | Connect to an existing app | |
+| `disconnect` | Disconnect | |
 
 ---
 
-## インストール
+## Installation
 
-### 1. Claude Code MCP 設定
+### 1. Claude Code MCP Configuration
 
-`~/.claude/settings.json` の `mcpServers` に以下を追加:
+Add the following to `mcpServers` in `~/.claude/settings.json`:
 
 ```json
 {
@@ -64,32 +64,32 @@ Claude Code から `mcp__electron-test__launch()` などのツールを呼ぶと
 }
 ```
 
-初回実行時に `~/.npm/_npx/` 配下に自動インストールされます。
+On first run, the package is automatically installed under `~/.npm/_npx/`.
 
-### 2. Linux 環境でのパッチ（必須）
+### 2. Linux Environment Patch (Required)
 
-#### パッチが必要な理由
+#### Why the Patch Is Needed
 
-`electron-test-mcp` v0.1.0 はデフォルトで macOS 向けに設計されており、Linux (Ubuntu) 環境では以下の問題で動作しません:
+`electron-test-mcp` v0.1.0 is designed for macOS by default and does not work on Linux (Ubuntu) due to the following issues:
 
-1. **`executablePath` 未指定** — `electron` コマンドが PATH に無い環境では起動失敗
-2. **`--no-sandbox` 未指定** — root 以外のユーザーで Chromium sandbox エラー
-3. **`--ozone-platform=x11` 未指定** — Wayland/X11 環境で表示問題が発生する場合がある
-4. **`ELECTRON_DISABLE_SANDBOX` 未設定** — sandbox 関連のクラッシュ
+1. **`executablePath` not specified** -- Launch fails in environments where the `electron` command is not on the PATH
+2. **`--no-sandbox` not specified** -- Chromium sandbox error for non-root users
+3. **`--ozone-platform=x11` not specified** -- Display issues may occur in Wayland/X11 environments
+4. **`ELECTRON_DISABLE_SANDBOX` not set** -- Sandbox-related crashes
 
-#### パッチ対象ファイルの特定
+#### Locating the File to Patch
 
 ```bash
 find ~/.npm/_npx -path "*/electron-test-mcp/dist/index.js" | head -1
 ```
 
-出力例: `~/.npm/_npx/abc123def/node_modules/electron-test-mcp/dist/index.js`
+Example output: `~/.npm/_npx/abc123def/node_modules/electron-test-mcp/dist/index.js`
 
-#### パッチ内容
+#### Patch Details
 
-`launch` ケースの Electron 起動部分（`_electron.launch` 呼び出し）を変更します。
+Modify the Electron launch section (the `_electron.launch` call) in the `launch` case.
 
-**変更前:**
+**Before:**
 ```javascript
 const appPath = args?.appPath || "./out/main/index.js";
 const env = args?.env || {};
@@ -99,7 +99,7 @@ electronApp = await _electron.launch({
 });
 ```
 
-**変更後:**
+**After:**
 ```javascript
 const appPath = args?.appPath || "./out/main/index.js";
 const env = args?.env || {};
@@ -111,9 +111,9 @@ electronApp = await _electron.launch({
 });
 ```
 
-`/_O/amical` は実際のプロジェクトルートパスに置換してください。
+Replace `/_O/amical` with the actual project root path.
 
-#### パッチ適用スクリプト
+#### Patch Application Script
 
 ```bash
 # パッチファイルの場所を特定
@@ -129,55 +129,55 @@ sed -i 's|args: \[appPath\],|args: ["--no-sandbox", "--ozone-platform=x11", appP
 sed -i 's|TEST_MODE: "true"|TEST_MODE: "true", ELECTRON_DISABLE_SANDBOX: "1"|' "$MCP_INDEX"
 ```
 
-パッチ適用後、Claude Code を再起動（`/quit` → 再起動）して MCP サーバーを再読み込みしてください。
+After applying the patch, restart Claude Code (`/quit` then relaunch) to reload the MCP server.
 
-> **注意**: `npm cache clean` やキャッシュクリアでパッチが消えます。パッケージ更新でも上書きされます。
+> **Note**: Running `npm cache clean` or clearing the cache will remove the patch. Package updates will also overwrite it.
 
 ---
 
-## 前提条件
+## Prerequisites
 
-### 1. アプリのフルビルド
+### 1. Full App Build
 
-MCP の `launch` モードでは Vite dev サーバーが起動しないため、事前にフルビルドが必要です。`pnpm start`（dev mode）は使えません。
+The MCP `launch` mode does not start a Vite dev server, so a full build is required beforehand. `pnpm start` (dev mode) cannot be used.
 
 ```bash
 cd /_O/amical/apps/desktop
 pnpm package
 ```
 
-これにより以下が生成されます:
-- `.vite/build/main.js` — メインプロセスのエントリポイント
-- `.vite/renderer/` — レンダラー側の HTML/JS/CSS
+This generates:
+- `.vite/build/main.js` -- Main process entry point
+- `.vite/renderer/` -- Renderer-side HTML/JS/CSS
 
-### 2. DB マイグレーション用シンボリックリンク
+### 2. Symlink for DB Migration
 
-ビルド済み `main.js` は `process.cwd()` からの相対パスでマイグレーションフォルダを探します。プロジェクトルートから実行する場合:
+The built `main.js` looks for the migration folder via a relative path from `process.cwd()`. When running from the project root:
 
 ```bash
 ln -s /_O/amical/apps/desktop/src /_O/amical/src
 ```
 
-このシンボリックリンクがないと、起動時に DB マイグレーションエラーで落ちます。
+Without this symlink, the app will crash on startup with a DB migration error.
 
-### 3. 環境変数ファイル (.env)
+### 3. Environment Variables File (.env)
 
-`/_O/amical/apps/desktop/.env` に以下を設定:
+Set the following in `/_O/amical/apps/desktop/.env`:
 
 ```env
 TEST_EMAIL=your-test-email@example.com
 TEST_PASSWORD=your-test-password
 ```
 
-OAuth E2E テストで使用します。このファイルは `src/main/main.ts` の先頭で `dotenv.config()` により読み込まれます。
+These are used for the OAuth E2E test. This file is loaded by `dotenv.config()` at the top of `src/main/main.ts`.
 
 ---
 
-## テスト手順（詳細）
+## Test Procedure (Detailed)
 
-### Step 0: テスト環境のクリーンアップ（事前準備）
+### Step 0: Clean Up Test Environment (Preparation)
 
-各テストランの前に、前回のデータを削除してフレッシュ状態にします:
+Before each test run, delete data from the previous run to start fresh:
 
 ```bash
 # DB ファイルの削除（全候補パスを網羅）
@@ -190,9 +190,9 @@ rm -f ~/.config/Electron/amical.db \
 rm -rf ~/.config/Electron/Partitions/auth-oauth
 ```
 
-> **重要**: dev ビルド（`pnpm start` や MCP 経由）は `~/.config/Electron/` にデータを保存しますが、パッケージビルドは `~/.config/Amical/` を使います。詳細は後述の「注意事項」セクションを参照。
+> **Important**: Dev builds (`pnpm start` or via MCP) store data in `~/.config/Electron/`, while packaged builds use `~/.config/Amical/`. See the "Notes" section below for details.
 
-### Step 1: アプリ起動
+### Step 1: Launch the App
 
 ```
 mcp__electron-test__launch(
@@ -201,18 +201,18 @@ mcp__electron-test__launch(
 )
 ```
 
-成功すると Amical のオンボーディング画面（Step 1: Feature Selection）が表示されます。
+On success, the Amical onboarding screen (Step 1: Feature Selection) is displayed.
 
-起動後、`screenshot` または `snapshot` で画面状態を確認:
+After launch, verify the screen state with `screenshot` or `snapshot`:
 
 ```
 mcp__electron-test__screenshot()
 mcp__electron-test__snapshot()
 ```
 
-### Step 2: オンボーディング — Step 1 (Feature Selection)
+### Step 2: Onboarding -- Step 1 (Feature Selection)
 
-「Contextual Dictation」カードをクリック:
+Click the "Contextual Dictation" card:
 
 ```
 mcp__electron-test__click(
@@ -220,7 +220,7 @@ mcp__electron-test__click(
 )
 ```
 
-「Continue」ボタンをクリックして次へ:
+Click the "Continue" button to proceed:
 
 ```
 mcp__electron-test__click(
@@ -228,9 +228,9 @@ mcp__electron-test__click(
 )
 ```
 
-### Step 3: オンボーディング — Step 2 (Permissions)
+### Step 3: Onboarding -- Step 2 (Permissions)
 
-権限設定画面。「Continue」をクリック:
+This is the permissions screen. Click "Continue":
 
 ```
 mcp__electron-test__click(
@@ -238,9 +238,9 @@ mcp__electron-test__click(
 )
 ```
 
-### Step 4: オンボーディング — Step 3 (Discovery)
+### Step 4: Onboarding -- Step 3 (Discovery)
 
-連携先を選択（例: GitHub）してから Continue:
+Select an integration (e.g., GitHub) then click Continue:
 
 ```
 mcp__electron-test__click(
@@ -251,11 +251,11 @@ mcp__electron-test__click(
 )
 ```
 
-### Step 5: オンボーディング — Step 4 (Model Selection)
+### Step 5: Onboarding -- Step 4 (Model Selection)
 
-ここで「Amical Cloud」カードを選択して OAuth サインインに進みます。
+Here, select the "Amical Cloud" card to proceed to OAuth sign-in.
 
-**重要**: Amical Cloud カードは通常の Playwright セレクタではクリックできません。React の内部イベントハンドラを直接呼び出す必要があります。
+**Important**: The Amical Cloud card cannot be clicked using standard Playwright selectors. You need to invoke the React internal event handler directly.
 
 ```
 mcp__electron-test__evaluate(
@@ -263,9 +263,9 @@ mcp__electron-test__evaluate(
 )
 ```
 
-> **なぜ React onClick ワークアラウンドが必要か**: Amical Cloud カードのクリックイベントは React の合成イベント（SyntheticEvent）で管理されています。Playwright の `click` はネイティブ DOM イベントを発火しますが、React 18 ではイベントが `document` レベルでデリゲートされており、Playwright のクリックが React のハンドラに到達しないケースがあります。`__reactProps` から直接 `onClick` を呼ぶことで確実に動作します。
+> **Why the React onClick workaround is needed**: The click event for the Amical Cloud card is managed via React's synthetic events (SyntheticEvent). Playwright's `click` fires native DOM events, but in React 18, events are delegated at the `document` level, and Playwright's click may not reach the React handler. Calling `onClick` directly from `__reactProps` ensures reliable behavior.
 
-500ms 待ってからモーダルの「Sign in」ボタンをクリック:
+Wait 500ms, then click the "Sign in" button in the modal:
 
 ```
 mcp__electron-test__wait(
@@ -276,11 +276,11 @@ mcp__electron-test__evaluate(
 )
 ```
 
-### Step 6: OAuth サインイン（auth ウィンドウ操作）
+### Step 6: OAuth Sign-In (Auth Window Operations)
 
-「Sign in」クリック後、Linux では `BrowserWindow` で `login.amical.ai` が開きます（macOS/Windows ではデフォルトブラウザが開く）。
+After clicking "Sign in", on Linux a `BrowserWindow` opens to `login.amical.ai` (on macOS/Windows, the default browser opens instead).
 
-#### 6a. auth ウィンドウの出現確認
+#### 6a. Verify Auth Window Appearance
 
 ```
 mcp__electron-test__evaluateMain(
@@ -288,11 +288,11 @@ mcp__electron-test__evaluateMain(
 )
 ```
 
-期待される結果: ウィンドウが 2 つ（メインウィンドウ + auth ウィンドウ）。auth ウィンドウの URL は `https://login.amical.ai/auth/sign-in?...` のようになります。
+Expected result: Two windows (main window + auth window). The auth window URL should look like `https://login.amical.ai/auth/sign-in?...`.
 
-#### 6b. ログインフォームの入力と送信
+#### 6b. Fill and Submit the Login Form
 
-auth ウィンドウ内で `nativeSetter` を使ってフォームに値を設定し、送信します。React 管理のフォームでは `input.value = '...'` だけでは state が更新されないため、`HTMLInputElement.prototype.value` の setter を直接呼び、`input` イベントを発火させます。
+Use `nativeSetter` to set form values and submit within the auth window. In React-managed forms, simply setting `input.value = '...'` does not update the state. Instead, call the `HTMLInputElement.prototype.value` setter directly and dispatch an `input` event.
 
 ```
 mcp__electron-test__evaluateMain(
@@ -300,24 +300,24 @@ mcp__electron-test__evaluateMain(
 )
 ```
 
-> **注意**: `process.env.TEST_EMAIL` と `process.env.TEST_PASSWORD` はメインプロセスの環境変数から取得されます。`.env` ファイルに設定しておく必要があります。
+> **Note**: `process.env.TEST_EMAIL` and `process.env.TEST_PASSWORD` are read from the main process environment variables. They must be set in the `.env` file.
 
-#### 6c. OAuth コールバックの処理
+#### 6c. OAuth Callback Handling
 
-ログイン成功後の流れ（auth-service.ts の実装に基づく）:
+The flow after successful login (based on the auth-service.ts implementation):
 
-1. ユーザーがフォーム送信 → `login.amical.ai` がログイン処理
-2. ログイン成功 → ページが `https://login.amical.ai/` （ルート）にナビゲーション
-3. `did-navigate` または `did-navigate-in-page` イベントで検知
-4. `authorizeUrl`（OAuth 認可エンドポイント）に自動遷移
-5. サーバーが `302` リダイレクトで `redirectUri` にコールバック
-6. `will-redirect` イベントでコールバック URL をキャプチャ
-7. `code` と `state` パラメータを抽出してトークン交換
-8. 認証成功 → auth ウィンドウが閉じる → `authenticated` イベント発火
+1. User submits the form -> `login.amical.ai` processes the login
+2. Login succeeds -> Page navigates to `https://login.amical.ai/` (root)
+3. Detected via `did-navigate` or `did-navigate-in-page` event
+4. Automatically navigates to `authorizeUrl` (OAuth authorization endpoint)
+5. Server responds with a `302` redirect to the `redirectUri`
+6. `will-redirect` event captures the callback URL
+7. Extracts `code` and `state` parameters for token exchange
+8. Authentication succeeds -> Auth window closes -> `authenticated` event fires
 
-### Step 7: 結果の確認
+### Step 7: Verify Results
 
-5秒待ってから確認:
+Wait 5 seconds before checking:
 
 ```
 mcp__electron-test__wait(
@@ -325,7 +325,7 @@ mcp__electron-test__wait(
 )
 ```
 
-#### 7a. ウィンドウ状態の確認
+#### 7a. Check Window State
 
 ```
 mcp__electron-test__evaluateMain(
@@ -333,23 +333,23 @@ mcp__electron-test__evaluateMain(
 )
 ```
 
-- **成功**: auth ウィンドウが消え、メインウィンドウのみ。Setup 画面が Step 5 "Setup Complete!" になっている
-- **失敗**: auth ウィンドウが `https://login.amical.ai/` で止まっている → `did-navigate`/`did-navigate-in-page` が発火していない可能性
+- **Success**: Auth window is gone, only the main window remains. The setup screen shows Step 5 "Setup Complete!"
+- **Failure**: Auth window is stuck at `https://login.amical.ai/` -> `did-navigate`/`did-navigate-in-page` may not have fired
 
-#### 7b. スクリーンショットで目視確認
+#### 7b. Visual Verification via Screenshot
 
 ```
 mcp__electron-test__screenshot()
 ```
 
-#### 7c. ログの確認（別ターミナルまたは Bash ツール）
+#### 7c. Check Logs (Separate Terminal or Bash Tool)
 
 ```bash
 grep -E "auth-diag|OAuth|Login complete|will-redirect|did-navigate" \
   ~/.config/Electron/logs/amical-dev.log | tail -30
 ```
 
-期待されるログシーケンス:
+Expected log sequence:
 ```
 [auth-diag] did-navigate: https://login.amical.ai/auth/sign-in?...
 [auth-diag] did-navigate-in-page: https://login.amical.ai/
@@ -361,19 +361,19 @@ Token exchange successful
 Authentication successful
 ```
 
-#### 7d. プロセスの確認
+#### 7d. Check Processes
 
 ```bash
 ps aux | grep -i electron | grep -v grep
 ```
 
-### Step 8: クリーンアップ
+### Step 8: Clean Up
 
 ```
 mcp__electron-test__close()
 ```
 
-その後、次のテストに備えて DB を削除:
+Then delete the DB in preparation for the next test:
 
 ```bash
 rm -f ~/.config/Electron/amical.db \
@@ -382,7 +382,7 @@ rm -f ~/.config/Electron/amical.db \
       /_O/amical/amical.db
 ```
 
-設定ディレクトリ全体のクリア（完全リセットしたい場合）:
+To fully reset the configuration directory:
 
 ```bash
 # dev ビルド用
@@ -394,37 +394,37 @@ rm -rf ~/.config/Amical/
 
 ---
 
-## 注意事項
+## Notes
 
 ### ~/.config/Electron vs ~/.config/Amical
 
-Electron アプリの `app.getPath("userData")` は、アプリ名（`package.json` の `name` フィールドまたは `app.setName()` の値）に基づいて決定されます。
+Electron's `app.getPath("userData")` is determined based on the app name (the `name` field in `package.json` or the value set by `app.setName()`).
 
-| ビルド形態 | データ保存先 | 該当ケース |
-|-----------|-------------|-----------|
-| dev ビルド (`pnpm start`, MCP `launch`) | `~/.config/Electron/` | `app.isPackaged === false` |
-| パッケージビルド (`pnpm make` で生成した .deb/.rpm) | `~/.config/Amical/` | `app.isPackaged === true` |
+| Build Type | Data Location | Applicable Case |
+|-----------|--------------|----------------|
+| Dev build (`pnpm start`, MCP `launch`) | `~/.config/Electron/` | `app.isPackaged === false` |
+| Packaged build (`.deb`/`.rpm` generated via `pnpm make`) | `~/.config/Amical/` | `app.isPackaged === true` |
 
-**MCP テストでは `~/.config/Electron/` が使われます。** DB 削除やログ確認の際は注意してください。ただし両方のパスを念のため削除しておくと安全です。
+**MCP tests use `~/.config/Electron/`.** Keep this in mind when deleting DBs or checking logs. Deleting both paths to be safe is recommended.
 
-### 5分間隔ルール（繰り返しテスト時）
+### 5-Minute Interval Rule (For Repeated Tests)
 
-サーバー側の認可挙動は、前回のログインからの経過時間によって異なります:
+The server-side authorization behavior differs based on the time elapsed since the last login:
 
-- **短時間（5分以内）での再テスト**: サーバーがセッションを記憶しており、ログイン画面をスキップして直接認可する場合がある。この場合、`did-navigate-in-page` ではなく `did-navigate` が発火する、あるいはまったく異なるフローになることがある
-- **5分以上経過後**: セッションが切れ、フルログインフローが走る
+- **Retesting within a short period (5 minutes or less)**: The server may remember the session and skip the login screen, going directly to authorization. In this case, `did-navigate` may fire instead of `did-navigate-in-page`, or the flow may differ entirely
+- **After 5 minutes or more**: The session expires and the full login flow runs
 
-連続テストで異なる結果が出る場合は、**最低5分間隔を空けて**再テストしてください。
+If you get different results when running tests consecutively, **wait at least 5 minutes** before retesting.
 
-また、auth セッションパーティションを削除すると強制的にフルログインフローになります:
+Alternatively, deleting the auth session partition forces the full login flow:
 
 ```bash
 rm -rf ~/.config/Electron/Partitions/auth-oauth
 ```
 
-### amical:// プロトコルとプロセス生成問題
+### amical:// Protocol and Process Spawning Issue
 
-`main.ts` の先頭で `protocol.registerSchemesAsPrivileged()` を呼んでいます:
+`protocol.registerSchemesAsPrivileged()` is called at the top of `main.ts`:
 
 ```typescript
 protocol.registerSchemesAsPrivileged([
@@ -432,19 +432,19 @@ protocol.registerSchemesAsPrivileged([
 ]);
 ```
 
-この登録がないと、`amical://oauth/callback` への 302 リダイレクト時に以下の問題が発生します:
+Without this registration, the following issues occur during a `302` redirect to `amical://oauth/callback`:
 
-1. Chromium が `amical://` スキームを「外部プロトコル」として扱い、OS のプロトコルハンドラに委譲
-2. OS が新しい Electron プロセスを起動しようとする（`app.setAsDefaultProtocolClient` で登録済みのため）
-3. 新プロセスが起動するが、元のプロセスとは別なのでコールバックが届かない
+1. Chromium treats the `amical://` scheme as an "external protocol" and delegates to the OS protocol handler
+2. The OS attempts to launch a new Electron process (since it is registered via `app.setAsDefaultProtocolClient`)
+3. A new process starts, but since it is separate from the original process, the callback never arrives
 
-`registerSchemesAsPrivileged` により `amical://` が「標準的なスキーム」として登録され、Chromium 内部でパスやクエリパラメータが保持されます。ただし Linux では現在 `will-redirect` + HTTPS リダイレクト URI 方式を使っているため、`amical://` の問題は回避されています。
+`registerSchemesAsPrivileged` registers `amical://` as a "standard scheme," allowing Chromium to preserve path and query parameters internally. However, on Linux, the current implementation uses the `will-redirect` + HTTPS redirect URI approach, which avoids the `amical://` issue entirely.
 
-### React onClick ワークアラウンド
+### React onClick Workaround
 
-Amical Cloud カードのクリックに関して、通常の Playwright `click` が効かない問題があります。これは React 18 のイベントデリゲーション（`document` ルートにリスナーが登録される）に起因します。
+There is a known issue where standard Playwright `click` does not work on the Amical Cloud card. This is caused by React 18's event delegation (listeners are registered at the `document` root).
 
-ワークアラウンド: `__reactProps$xxx` プロパティから `onClick` を取得して `MouseEvent` を手動ディスパッチ:
+Workaround: Retrieve `onClick` from the `__reactProps$xxx` property and manually dispatch a `MouseEvent`:
 
 ```javascript
 const allEls = document.querySelectorAll('*');
@@ -458,64 +458,64 @@ for (const el of allEls) {
 }
 ```
 
-このワークアラウンドは `__reactProps` というReact 内部実装に依存しているため、React のバージョンアップで動作しなくなる可能性があります。
+This workaround depends on `__reactProps`, a React internal implementation detail, and may break with future React version upgrades.
 
 ---
 
-## トラブルシューティング
+## Troubleshooting
 
-### アプリが起動しない
+### App Fails to Launch
 
-| 症状 | 原因 | 対処 |
-|------|------|------|
-| `Cannot find module` | ビルドされていない | `pnpm package` を実行 |
-| `Running as root without --no-sandbox is not supported` | sandbox エラー | パッチで `--no-sandbox` と `ELECTRON_DISABLE_SANDBOX=1` を追加 |
-| `electron: command not found` | executablePath 未設定 | パッチで `executablePath` を追加 |
-| DB migration エラー | symlink がない | `ln -s /_O/amical/apps/desktop/src /_O/amical/src` |
-| 画面が真っ黒 | レンダラーのビルドがない | `pnpm package` で `.vite/renderer/` が生成されているか確認 |
+| Symptom | Cause | Solution |
+|---------|-------|----------|
+| `Cannot find module` | App not built | Run `pnpm package` |
+| `Running as root without --no-sandbox is not supported` | Sandbox error | Add `--no-sandbox` and `ELECTRON_DISABLE_SANDBOX=1` via the patch |
+| `electron: command not found` | executablePath not set | Add `executablePath` via the patch |
+| DB migration error | Symlink missing | `ln -s /_O/amical/apps/desktop/src /_O/amical/src` |
+| Black screen | Renderer not built | Verify that `.vite/renderer/` was generated by `pnpm package` |
 
-### OAuth ログインが失敗する
+### OAuth Login Fails
 
-| 症状 | 原因 | 対処 |
-|------|------|------|
-| auth ウィンドウが開かない | `login()` が呼ばれていない | スクリーンショットで Step 4 の状態を確認 |
-| auth ウィンドウが `login.amical.ai` で止まる | `did-navigate`/`did-navigate-in-page` 未発火 | ログを確認。5分ルールに該当しないか確認 |
-| `will-redirect` が発火しない | リダイレクト URI の不一致 | `.env` の `AUTH_REDIRECT_URI` を確認 |
-| `Token exchange failed` | PKCE 検証失敗 or 期限切れ | 5分以上待ってから再テスト |
-| `State mismatch` | state パラメータの不一致 | DB 削除して完全にやり直し |
-| `input[type="email"]` が見つからない | ページ読み込み未完了 | `wait` で 2-3 秒待ってからフォーム入力 |
-| `process.env.TEST_EMAIL` が undefined | `.env` 未設定 | `apps/desktop/.env` にテスト資格情報を設定 |
+| Symptom | Cause | Solution |
+|---------|-------|----------|
+| Auth window does not open | `login()` not called | Check Step 4 state via screenshot |
+| Auth window stuck at `login.amical.ai` | `did-navigate`/`did-navigate-in-page` not firing | Check logs. Verify the 5-minute rule does not apply |
+| `will-redirect` not firing | Redirect URI mismatch | Check `AUTH_REDIRECT_URI` in `.env` |
+| `Token exchange failed` | PKCE verification failure or expired | Wait 5+ minutes and retry |
+| `State mismatch` | State parameter mismatch | Delete DB and start over |
+| `input[type="email"]` not found | Page not fully loaded | Use `wait` for 2-3 seconds before filling the form |
+| `process.env.TEST_EMAIL` is undefined | `.env` not configured | Set test credentials in `apps/desktop/.env` |
 
-### MCP 接続の問題
+### MCP Connection Issues
 
-| 症状 | 原因 | 対処 |
-|------|------|------|
-| `MCP tool not found` | MCP サーバー未接続 | Claude Code を再起動。`/mcp` で接続状態を確認 |
-| `electronApp is not defined` | `launch` 前に他のツールを呼んだ | 先に `launch` を実行 |
-| パッチが効いていない | npm キャッシュクリア or パッケージ更新 | `find ~/.npm/_npx -path "*/electron-test-mcp/dist/index.js"` で再確認してパッチ再適用 |
+| Symptom | Cause | Solution |
+|---------|-------|----------|
+| `MCP tool not found` | MCP server not connected | Restart Claude Code. Check connection with `/mcp` |
+| `electronApp is not defined` | Called another tool before `launch` | Run `launch` first |
+| Patch not taking effect | npm cache cleared or package updated | Re-check with `find ~/.npm/_npx -path "*/electron-test-mcp/dist/index.js"` and reapply the patch |
 
-### 2回目のテストで挙動が変わる
+### Behavior Changes on Second Test Run
 
-原因: サーバー側セッションの残存。対処法:
+Cause: Residual server-side sessions. Solutions:
 
-1. auth セッションパーティション削除: `rm -rf ~/.config/Electron/Partitions/auth-oauth`
-2. 5分以上間隔を空ける
-3. DB 削除して `pendingAuth` 状態をリセット
+1. Delete the auth session partition: `rm -rf ~/.config/Electron/Partitions/auth-oauth`
+2. Wait at least 5 minutes between tests
+3. Delete the DB to reset `pendingAuth` state
 
 ---
 
-## ログファイルの場所と確認方法
+## Log File Locations and How to Check
 
-### ログファイルパス
+### Log File Paths
 
-| ビルド | パス |
-|--------|------|
-| dev ビルド（MCP テスト） | `~/.config/Electron/logs/amical-dev.log` |
-| パッケージビルド | `~/.config/Amical/logs/amical.log` |
+| Build | Path |
+|-------|------|
+| Dev build (MCP test) | `~/.config/Electron/logs/amical-dev.log` |
+| Packaged build | `~/.config/Amical/logs/amical.log` |
 
-ログフォーマット: `[日時] [level] [scope] メッセージ`
+Log format: `[datetime] [level] [scope] message`
 
-### 有用な grep パターン
+### Useful grep Patterns
 
 ```bash
 # OAuth フロー全体の追跡
@@ -538,13 +538,13 @@ grep -i "migration" ~/.config/Electron/logs/amical-dev.log
 grep "\[main\].*error" ~/.config/Electron/logs/amical-dev.log | tail -10
 ```
 
-### ログの最大サイズ
+### Maximum Log Size
 
-ログファイルは最大 10MB でローテーションされます（`electron-log` の設定）。テストを繰り返す場合、古いログが消えることがあります。重要なログはテスト直後に確認してください。
+Log files are rotated at a maximum of 10MB (`electron-log` setting). When running tests repeatedly, older logs may be deleted. Check important logs immediately after testing.
 
-### リアルタイムログ監視
+### Real-Time Log Monitoring
 
-テスト中にリアルタイムでログを監視する場合:
+To monitor logs in real time during tests:
 
 ```bash
 tail -f ~/.config/Electron/logs/amical-dev.log | grep --line-buffered -E "OAuth|auth-diag|Login|error"

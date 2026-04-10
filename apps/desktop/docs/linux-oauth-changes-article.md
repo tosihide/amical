@@ -1,58 +1,61 @@
-# ElectronアプリのLinux対応で遭遇したOAuth認証の罠 --- Chromiumのカスタムスキーム切り詰め問題と対策
+# OAuth Authentication Pitfalls When Porting an Electron App to Linux --- Chromium's Custom Scheme Truncation Issue and Workarounds
 
-## 導入
+## Introduction
 
-Electron製のデスクトップアプリをLinuxに移植する作業をしていた。macOSとWindowsでは問題なく動いていたOAuth認証が、Linuxでだけ動かない。調べてみると、Chromiumのカスタムスキーム処理に起因する、なかなか情報が出てこない問題に連鎖的に遭遇した。
+I was porting an Electron desktop app to Linux. OAuth authentication that worked flawlessly on macOS and Windows simply refused to work on Linux. After investigation, I encountered a chain of issues rooted in Chromium's custom scheme handling --- problems that are poorly documented and difficult to find information about.
 
-この記事では、実際のコードを交えながら、遭遇した4つの問題とその解決策を共有する。同じような状況で困っている人の助けになれば幸いだ。
-
----
-
-## 背景 --- macOS/Windowsとの違い
-
-アプリ（Amical）はOAuth2 PKCE認証を使っている。macOSとWindowsでは、OSのdeep link機構を利用してコールバックを受け取る仕組みだ。
-
-```
-1. アプリが外部ブラウザでauthorize URLを開く
-2. ユーザーがブラウザでログインする
-3. サーバーが amical://oauth/callback?code=xxx にリダイレクト
-4. OSがdeep linkを処理し、アプリにURLを渡す
-5. アプリがcodeをtokenに交換する
-```
-
-macOSでは`app.on("open-url")`、Windowsではsingle instanceの`second-instance`イベントでURLを受け取れる。シンプルだ。
-
-**しかしLinuxではこれが動かない。**
-
-Linuxにもカスタムスキームのハンドラ登録機構（`.desktop`ファイルの`MimeType=x-scheme-handler/amical`）はあるが、外部ブラウザからアプリにURLが渡される挙動が不安定で、環境依存が大きい。特にAppImageやSandbox環境では信頼性が低い。
-
-そこで、Linux向けにはBrowserWindowを使ってアプリ内でOAuthフロー全体を完結させる方式に変更した。ここから問題が始まる。
+In this article, I share four problems I encountered and their solutions, including actual code. I hope this helps others facing similar situations.
 
 ---
 
-## 問題1: will-redirectとwill-navigateの使い分け
+## Background --- Differences from macOS/Windows
 
-### OAuthフローの流れ
-
-Linux向けの実装では、BrowserWindowでログインページを開き、認証完了後にauthorize endpointへ遷移させる。このとき、サーバー側の302リダイレクトをどうキャッチするかが最初の課題だった。
+The app (Amical) uses OAuth2 PKCE authentication. On macOS and Windows, it uses the OS's deep link mechanism to receive callbacks.
 
 ```
-ユーザー操作                    イベント
+1. App opens the authorize URL in an external browser
+2. User logs in via the browser
+3. Server redirects to amical://oauth/callback?code=xxx
+4. OS handles the deep link and passes the URL to the app
+5. App exchanges the code for a token
+```
+
+On macOS, the URL is received via `app.on("open-url")`, and on Windows, via the `second-instance` event with single instance lock. Straightforward.
+
+**However, this does not work on Linux.**
+
+Linux does have a custom scheme handler registration mechanism (`.desktop` file with `MimeType=x-scheme-handler/amical`), but the behavior of passing URLs from an external browser to the app is unreliable and highly environment-dependent. It is particularly unreliable in AppImage and sandbox environments.
+
+Therefore, for Linux, I changed the approach to use a BrowserWindow to complete the entire OAuth flow within the app. This is where the problems began.
+
+---
+
+## Problem 1: Choosing Between will-redirect and will-navigate
+
+### The OAuth Flow
+
+In the Linux implementation, a BrowserWindow opens the login page, and after authentication completes, it navigates to the authorize endpoint. The first challenge was how to catch the server-side 302 redirect.
+
+```
+User Action                      Event
 ─────────────────────────────────────────────
-1. ログインページ表示            loadURL()
-2. メール/パスワード入力          (ユーザー操作)
-3. ログイン完了 → ルートへ遷移    did-navigate-in-page or did-navigate
-4. authorize endpointへ遷移      loadURL()
-5. サーバーが302でコールバックへ   will-redirect ← ここでキャッチ
+1. Display login page             loadURL()
+2. Enter email/password           (user action)
+3. Login complete → navigate      did-navigate-in-page or did-navigate
+   to root
+4. Navigate to authorize          loadURL()
+   endpoint
+5. Server returns 302 to          will-redirect ← catch here
+   callback
 ```
 
-### ログイン完了検知の罠
+### The Login Completion Detection Trap
 
-ステップ3の「ログイン完了」の検知が曲者だった。ログインページ（login.amical.ai/auth/sign-in）でログインが完了すると、ルートURL（login.amical.ai/）に遷移する。しかし、**この遷移がSPA内の画面遷移（`did-navigate-in-page`）になるか、フルナビゲーション（`did-navigate`）になるかは、サーバー側のセッション状態によって変わる。**
+Detecting "login complete" in step 3 was tricky. When login completes on the login page (login.amical.ai/auth/sign-in), it navigates to the root URL (login.amical.ai/). However, **whether this navigation is an SPA in-page navigation (`did-navigate-in-page`) or a full navigation (`did-navigate`) depends on the server-side session state.**
 
-初回ログインでは`did-navigate-in-page`、短時間に再ログインすると`did-navigate`になる、といった具合だ。
+On the first login, it fires `did-navigate-in-page`; on a quick re-login shortly after, it fires `did-navigate`.
 
-結局、両方のイベントをリッスンすることで解決した:
+The solution was to listen for both events:
 
 ```typescript
 const onLoginComplete = (_event: unknown, url: string) => {
@@ -70,11 +73,11 @@ this.authWindow.webContents.on("did-navigate-in-page", onLoginComplete);
 this.authWindow.webContents.on("did-navigate", onLoginComplete);
 ```
 
-`authorizeAttempted`フラグで二重実行を防いでいる。
+The `authorizeAttempted` flag prevents double execution.
 
-### コールバックのキャッチ
+### Catching the Callback
 
-authorize endpointからのリダイレクトは`will-redirect`でキャッチする。`will-navigate`ではなく`will-redirect`なのは、これがサーバーからの302レスポンスによるリダイレクトだからだ:
+The redirect from the authorize endpoint is caught with `will-redirect`. The reason for using `will-redirect` rather than `will-navigate` is that this is a redirect triggered by a 302 response from the server:
 
 ```typescript
 this.authWindow.webContents.on("will-redirect", (event, url) => {
@@ -86,61 +89,61 @@ this.authWindow.webContents.on("will-redirect", (event, url) => {
 });
 ```
 
-HTTPSのコールバックURL（例: `https://core.amical.ai/auth/callback`）をredirectUriとして使う場合、`will-redirect`で完全なURLが取得でき、ここまでは問題なく動く。
+When using an HTTPS callback URL (e.g., `https://core.amical.ai/auth/callback`) as the redirectUri, `will-redirect` provides the complete URL, and everything works fine up to this point.
 
 ---
 
-## 問題2: Chromiumのカスタムスキーム URL切り詰め
+## Problem 2: Chromium's Custom Scheme URL Truncation
 
-ここからが本丸だ。
+This is the core issue.
 
-redirectUriとしてカスタムスキーム `amical://oauth/callback` を使った場合に問題が発生した。
+The problem occurs when using the custom scheme `amical://oauth/callback` as the redirectUri.
 
-### 症状
+### Symptoms
 
-authorize endpointがカスタムスキームへ302リダイレクトを返す場合:
+When the authorize endpoint returns a 302 redirect to a custom scheme:
 
 ```
 HTTP/1.1 302 Found
 Location: amical://oauth/callback?code=AUTH_CODE&state=STATE
 ```
 
-このURLを`will-navigate`で受け取ると、**`amical://`だけに切り詰められている。** パス（`/oauth/callback`）もクエリパラメータ（`?code=...&state=...`）もすべて消えている。
+When received via `will-navigate`, **the URL is truncated to just `amical://`.** The path (`/oauth/callback`) and query parameters (`?code=...&state=...`) are all stripped.
 
 ```typescript
-// will-navigate で受け取るURL
-"amical://"  // ← code も state もない！
+// URL received in will-navigate
+"amical://"  // ← no code or state!
 ```
 
-`protocol.handle`でカスタムスキームを登録しても同様だった。
+Registering the custom scheme with `protocol.handle` did not help either.
 
-### 原因
+### Cause
 
-Chromiumは非標準のスキーム（`http`/`https`/`file`等以外）のURLに対して、URL正規化（canonicalization）を適用する。この正規化の過程で、Chromiumが認識しないスキームのURLはスキーム部分のみに切り詰められる。
+Chromium applies URL canonicalization to URLs with non-standard schemes (anything other than `http`/`https`/`file`, etc.). During this canonicalization process, URLs with schemes that Chromium does not recognize are truncated to just the scheme portion.
 
-これはChromiumのセキュリティ機構の一部で、未知のスキームに対してURLの構造（authority, path, query）を保証しないという設計思想に基づいている。
+This is part of Chromium's security mechanism, based on the design philosophy of not guaranteeing URL structure (authority, path, query) for unknown schemes.
 
-### 解決策: registerSchemesAsPrivileged
+### Solution: registerSchemesAsPrivileged
 
-`main.ts`の**最初のほう**（`app.ready`の前）で、カスタムスキームを「特権スキーム」として登録する:
+Register the custom scheme as a "privileged scheme" **early** in `main.ts` (before `app.ready`):
 
 ```typescript
 import { app, protocol } from "electron";
 
-// app.ready より前に呼ぶ必要がある
+// Must be called before app.ready
 protocol.registerSchemesAsPrivileged([
   { scheme: "amical", privileges: { standard: true, secure: true } },
 ]);
 ```
 
-`standard: true`を指定することで、Chromiumはこのスキームを標準的なURL構造を持つスキームとして扱い、パスやクエリパラメータが保持されるようになる。`secure: true`は、このスキームをHTTPSと同等のセキュリティコンテキストで動作させる。
+By specifying `standard: true`, Chromium treats this scheme as having a standard URL structure, preserving the path and query parameters. `secure: true` makes the scheme operate in a security context equivalent to HTTPS.
 
-**重要: この呼び出しは`app.ready`イベントの前に行う必要がある。** Chromiumの初期化時にスキーム情報が確定するため、初期化後に登録しても効果がない。
+**Important: This call must be made before the `app.ready` event.** Since scheme information is finalized during Chromium initialization, registering after initialization has no effect.
 
-実際のコードでは、importの直後に配置している:
+In the actual code, it is placed immediately after the imports:
 
 ```typescript
-// main.ts 冒頭
+// main.ts top
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -157,20 +160,20 @@ protocol.registerSchemesAsPrivileged([
 
 ---
 
-## 問題3: カスタムスキームによるプロセス増殖
+## Problem 3: Process Spawning from Custom Scheme Navigation
 
-問題2を解決して`will-navigate`でフルURLが取れるようになった...が、別の問題が現れた。
+After solving Problem 2, `will-navigate` could now receive the full URL... but another problem appeared.
 
-### 症状
+### Symptoms
 
-BrowserWindow内で`amical://oauth/callback?code=...`への遷移が発生すると、**OSがこのURLをシステムのプロトコルハンドラに渡そうとし、アプリの別プロセスが起動される。** single instanceロックがあるので2つ目のプロセスはすぐ終了するが、ログが汚れるし、タイミングによっては認証フローが中断される。
+When a navigation to `amical://oauth/callback?code=...` occurs inside the BrowserWindow, **the OS attempts to pass this URL to the system's protocol handler, launching another instance of the app.** The single instance lock causes the second process to exit immediately, but it pollutes the logs and, depending on timing, can interrupt the authentication flow.
 
-### 解決策: session.protocol.handleでインプロセス処理
+### Solution: In-process Handling with session.protocol.handle
 
-BrowserWindowのセッションに対してプロトコルハンドラを登録し、カスタムスキームへの遷移をプロセス内で完結させる:
+Register a protocol handler on the BrowserWindow's session to handle custom scheme navigation in-process:
 
 ```typescript
-// authWindow の session に対してハンドラを登録
+// Register handler on the authWindow's session
 this.authWindow.webContents.session.protocol.handle("amical", (request) => {
   const fullUrl = request.url;
   logger.main.info("OAuth callback captured via protocol handler:", fullUrl);
@@ -179,33 +182,33 @@ this.authWindow.webContents.session.protocol.handle("amical", (request) => {
 });
 ```
 
-`protocol.handle`（グローバル）ではなく`session.protocol.handle`（セッションスコープ）を使っている点がポイントだ。これにより:
+The key point is using `session.protocol.handle` (session-scoped) rather than `protocol.handle` (global). This ensures:
 
-- 認証用BrowserWindow内でのみハンドラが有効になる
-- メインウィンドウやその他のWebContentsに影響しない
-- OSのプロトコルハンドラに遷移が渡されない
+- The handler is active only within the authentication BrowserWindow
+- The main window and other WebContents are not affected
+- The navigation is not passed to the OS protocol handler
 
 ---
 
-## 問題4: サーバー側の挙動変化
+## Problem 4: Server-Side Behavior Changes
 
-テストを繰り返していると、「さっきは動いたのに今は動かない」という状況に遭遇した。
+During repeated testing, I encountered situations where "it worked just a moment ago but doesn't work now."
 
-### 症状
+### Symptoms
 
-短時間に連続してログイン・ログアウトを繰り返すと、authorize endpointの挙動が変わる:
+When rapidly repeating login/logout cycles, the authorize endpoint's behavior changes:
 
-- **初回ログイン**: authorize endpoint → 302 → HTTPS callback URL
-- **短時間での再ログイン**: authorize endpoint → 302 → `amical://oauth/callback?code=...` （カスタムスキームに直接リダイレクト）
+- **First login**: authorize endpoint -> 302 -> HTTPS callback URL
+- **Quick re-login**: authorize endpoint -> 302 -> `amical://oauth/callback?code=...` (direct redirect to custom scheme)
 
-サーバー側がセッションの状態を見て、リダイレクト先を動的に変えているようだった。
+The server appeared to dynamically change the redirect target based on session state.
 
-### 対策
+### Workaround
 
-HTTPS callbackとカスタムスキームcallbackの**両方**を処理できるようにした。`will-redirect`でHTTPSコールバックをキャッチし、`session.protocol.handle`でカスタムスキームコールバックをキャッチする。どちらが来ても同じ`handleDeepLinkFromWindow`メソッドで処理する:
+I made the implementation handle **both** HTTPS callbacks and custom scheme callbacks. `will-redirect` catches HTTPS callbacks, and `session.protocol.handle` catches custom scheme callbacks. Regardless of which one arrives, the same `handleDeepLinkFromWindow` method processes it:
 
 ```typescript
-// HTTPS callback: will-redirect でキャッチ
+// HTTPS callback: caught via will-redirect
 this.authWindow.webContents.on("will-redirect", (event, url) => {
   if (url.startsWith(redirectUri)) {
     event.preventDefault();
@@ -213,7 +216,7 @@ this.authWindow.webContents.on("will-redirect", (event, url) => {
   }
 });
 
-// カスタムスキーム callback: session protocol handler でキャッチ
+// Custom scheme callback: caught via session protocol handler
 this.authWindow.webContents.session.protocol.handle("amical", (request) => {
   const fullUrl = request.url;
   this.handleDeepLinkFromWindow(fullUrl);
@@ -221,14 +224,14 @@ this.authWindow.webContents.session.protocol.handle("amical", (request) => {
 });
 ```
 
-コールバックURLのパース側も、両方のスキームに対応している:
+The callback URL parsing side also handles both schemes:
 
 ```typescript
 private handleDeepLinkFromWindow(url: string): void {
   const parsedUrl = new URL(url);
   const redirectUri = this.activeRedirectUri || this.config.redirectUri;
 
-  // amical://oauth/callback と HTTPS redirect URI の両方にマッチ
+  // Match both amical://oauth/callback and HTTPS redirect URI
   const isAmicalScheme =
     parsedUrl.host === "oauth" && parsedUrl.pathname === "/callback";
   const isHttpsRedirect = url.startsWith(redirectUri);
@@ -245,96 +248,96 @@ private handleDeepLinkFromWindow(url: string): void {
 
 ---
 
-## 最終的な実装
+## Final Implementation
 
-全体の構造をまとめると以下のようになる。
+Here is a summary of the overall structure.
 
-### main.ts（起動時）
+### main.ts (at startup)
 
 ```typescript
 import { app, protocol } from "electron";
 
-// Chromiumの初期化前にカスタムスキームを登録（必須）
+// Register custom scheme before Chromium initialization (required)
 protocol.registerSchemesAsPrivileged([
   { scheme: "amical", privileges: { standard: true, secure: true } },
 ]);
 
-// ... app.ready 後 ...
+// ... after app.ready ...
 
-// macOS/Windows向け: OSのdeep linkハンドラ登録
+// macOS/Windows: register OS deep link handler
 app.setAsDefaultProtocolClient("amical");
 
-// macOS: open-url イベントでコールバック受信
+// macOS: receive callback via open-url event
 app.on("open-url", (event, url) => {
   event.preventDefault();
   appManager.handleDeepLink(url);
 });
 ```
 
-### auth-service.ts（Linux向けOAuthフロー）
+### auth-service.ts (Linux OAuth flow)
 
 ```typescript
 async login(): Promise<void> {
-  // PKCE パラメータ生成
+  // Generate PKCE parameters
   const { verifier, challenge } = this.generatePKCE();
   const state = this.generateState();
   this.pendingAuth = { state, codeVerifier: verifier, codeChallenge: challenge };
 
   if (process.platform === "linux") {
-    // Linux: BrowserWindowでフロー全体を実行
+    // Linux: run entire flow in BrowserWindow
     this.openAuthWindow(loginUrl, authorizeUrl);
   } else {
-    // macOS/Windows: 外部ブラウザ → deep link
+    // macOS/Windows: external browser → deep link
     await shell.openExternal(authorizeUrl);
   }
 }
 ```
 
-Linux分岐の`openAuthWindow`が、ここまで述べた4つの問題への対策をすべて含んでいる。
+The `openAuthWindow` in the Linux branch contains all the workarounds for the four problems described above.
 
-### プラットフォーム判定の設計方針
+### Platform Branching Design Philosophy
 
-`process.platform === "linux"`での分岐は`login()`メソッドの1箇所のみ。コールバック処理（`handleDeepLinkFromWindow`）やトークン交換（`exchangeCodeForToken`）はプラットフォーム共通のコードだ。分岐を最小限に抑えることで、保守性を確保している。
-
----
-
-## E2Eテストの自動化
-
-OAuth認証フローは手動テストが面倒だ。ブラウザ操作、リダイレクト、トークン交換と、ステップが多い。
-
-このプロジェクトでは、Claude Code + electron-test-mcp（Electron用MCPツール）を使ってE2Eテストの自動化を試みた。MCPツールを使うと、Claude Codeからelectronアプリの操作（クリック、テキスト入力、スクリーンショット取得など）をプログラマティックに実行できる。
-
-テストの流れ:
-
-1. `mcp__electron-test__launch` でアプリを起動
-2. `mcp__electron-test__click` でログインボタンをクリック
-3. 認証ウィンドウでメール/パスワードを入力
-4. `mcp__electron-test__screenshot` で画面を確認
-5. リダイレクト後の状態を検証
-
-ただし、`will-redirect`の2回目が発火しないケースがあるなど、イベントの検知に課題が残っている。Electronのナビゲーションイベントの挙動はWebContentsの状態に依存する部分が多く、テストの安定化には追加の調査が必要だ。
+The `process.platform === "linux"` branch exists only in one place: the `login()` method. Callback handling (`handleDeepLinkFromWindow`) and token exchange (`exchangeCodeForToken`) use platform-agnostic code. By minimizing branching, maintainability is preserved.
 
 ---
 
-## まとめ
+## E2E Test Automation
 
-Electron製アプリのLinux対応でOAuth認証を実装する際に遭遇した問題と対策をまとめる:
+OAuth authentication flows are tedious to test manually. There are many steps: browser interaction, redirects, token exchange.
 
-| 問題 | 原因 | 対策 |
+This project attempted to automate E2E testing using Claude Code + electron-test-mcp (an MCP tool for Electron). MCP tools allow programmatic control of the Electron app from Claude Code (clicking, text input, screenshot capture, etc.).
+
+Test flow:
+
+1. `mcp__electron-test__launch` to launch the app
+2. `mcp__electron-test__click` to click the login button
+3. Enter email/password in the authentication window
+4. `mcp__electron-test__screenshot` to verify the screen
+5. Validate the state after redirect
+
+However, there are remaining challenges with event detection, such as cases where `will-redirect` does not fire on the second invocation. The behavior of Electron's navigation events depends heavily on WebContents state, and further investigation is needed to stabilize tests.
+
+---
+
+## Summary
+
+Here is a summary of the problems encountered and their solutions when implementing OAuth authentication for Linux in an Electron app:
+
+| Problem | Cause | Solution |
 |------|------|------|
-| ログイン完了検知 | SPAナビゲーション or フルナビゲーションがサーバー状態で変わる | `did-navigate-in-page` と `did-navigate` の両方をリッスン |
-| URL切り詰め | Chromiumの非標準スキームURL正規化 | `protocol.registerSchemesAsPrivileged` で standard: true を指定 |
-| プロセス増殖 | カスタムスキーム遷移がOSのハンドラに渡される | `session.protocol.handle` でインプロセス処理 |
-| リダイレクト先の変化 | サーバー側のセッション状態依存 | HTTPS と カスタムスキーム の両方に対応 |
+| Login completion detection | SPA navigation vs. full navigation changes based on server state | Listen for both `did-navigate-in-page` and `did-navigate` |
+| URL truncation | Chromium's URL canonicalization for non-standard schemes | Specify `standard: true` in `protocol.registerSchemesAsPrivileged` |
+| Process spawning | Custom scheme navigation passed to OS handler | In-process handling with `session.protocol.handle` |
+| Redirect target changes | Server-side session state dependency | Support both HTTPS and custom scheme callbacks |
 
-### 学んだこと
+### Lessons Learned
 
-1. **`registerSchemesAsPrivileged`は`app.ready`の前に呼ぶ。** これを知らないと、カスタムスキームのURLが切り詰められる問題に永遠にハマる。Electronの公式ドキュメントにも記載はあるが、OAuthの文脈での具体例は少ない。
+1. **Call `registerSchemesAsPrivileged` before `app.ready`.** Without knowing this, you will be stuck forever on the custom scheme URL truncation issue. While it is documented in Electron's official documentation, concrete examples in the OAuth context are rare.
 
-2. **Electronのナビゲーションイベントは多い。** `will-navigate`, `did-navigate`, `will-redirect`, `did-redirect`, `did-navigate-in-page`... 用途に応じて正しいイベントを選ぶ必要がある。特にサーバーサイドの302リダイレクトは`will-redirect`であり、`will-navigate`ではない。
+2. **Electron has many navigation events.** `will-navigate`, `did-navigate`, `will-redirect`, `did-redirect`, `did-navigate-in-page`... You need to choose the right event for your use case. In particular, server-side 302 redirects fire `will-redirect`, not `will-navigate`.
 
-3. **サーバー側の挙動も変わりうる。** クライアント側だけ見ていると原因がわからない問題がある。同じauthorize endpointでも、セッション状態によってリダイレクト先が変わることがある。
+3. **Server-side behavior can change too.** Some problems cannot be diagnosed by looking only at the client side. The same authorize endpoint may change its redirect target depending on session state.
 
-4. **プラットフォーム分岐は最小限に。** 分岐が多いとテストのコストが跳ね上がる。Linux向けの分岐は`login()`内の1箇所に集約し、下流の処理は共通化した。
+4. **Keep platform branching to a minimum.** More branches mean higher testing costs. The Linux-specific branch is consolidated into a single location within `login()`, and downstream processing is shared.
 
-Electron + LinuxでOAuth認証を実装しようとしている方の参考になれば幸いだ。
+I hope this serves as a useful reference for anyone implementing OAuth authentication in an Electron app on Linux.

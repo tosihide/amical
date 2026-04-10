@@ -1,21 +1,21 @@
-# Electronアプリの sandbox 問題を理解する — ELECTRON_DISABLE_SANDBOX が必要な理由と各パッケージ形式での対策
+# Understanding the Sandbox Issue in Electron Apps --- Why ELECTRON_DISABLE_SANDBOX Is Needed and Solutions for Each Package Format
 
 ---
 
-> **対象読者:** Linux で Electron アプリを開発・配布している人。特に `.deb`、AppImage、開発モードでの sandbox エラーに困っている人。
+> **Target audience:** Developers building and distributing Electron apps on Linux. Particularly those encountering sandbox errors with `.deb`, AppImage, or development mode.
 
 ---
 
-## 1. 導入 — Segmentation Fault の正体
+## 1. Introduction --- The Real Cause of Segmentation Faults
 
-Linux で Electron アプリを起動したら、いきなりこうなった。
+You launch your Electron app on Linux, and it immediately crashes.
 
 ```
 $ ./MyApp-1.0.0-x64.AppImage
 Segmentation fault (core dumped)
 ```
 
-あるいは、もう少し親切なエラーが出ることもある。
+Or sometimes you get a slightly more helpful error message.
 
 ```
 The SUID sandbox helper binary was found, but is not configured correctly.
@@ -23,148 +23,148 @@ Rather than run without sandboxing I'm aborting now.
 You need to make sure that /path/to/chrome-sandbox is owned by root and has mode 4755.
 ```
 
-原因は **Chromium の sandbox 機構**だ。Electron は内部に Chromium を抱えており、Chromium が Linux 上でプロセスを sandbox 化するために必要な権限が足りないと、起動すらできない。
+The cause is **Chromium's sandbox mechanism**. Electron embeds Chromium internally, and if Chromium lacks the permissions required to sandbox processes on Linux, the app cannot even start.
 
-本記事では、この問題の仕組みと、パッケージ形式ごとの対策を解説する。
+This article explains the mechanics of this issue and solutions for each package format.
 
 ---
 
-## 2. Chromium sandbox とは
+## 2. What Is the Chromium Sandbox?
 
-### sandbox の目的
+### Purpose of the Sandbox
 
-Chromium（= Chrome のオープンソース基盤）は、レンダラープロセスを **sandbox** で隔離する。Web ページが悪意あるコードを実行しても、OS のファイルシステムやプロセスに直接アクセスできないようにするためだ。
+Chromium (the open-source foundation of Chrome) isolates renderer processes using a **sandbox**. This prevents malicious code executed by web pages from directly accessing the OS's filesystem or processes.
 
-これはブラウザとして極めて重要なセキュリティ機構であり、Electron もこの仕組みをそのまま継承している。
+This is an extremely important security mechanism for browsers, and Electron inherits this system as-is.
 
-### Linux で問題になる理由
+### Why It Becomes a Problem on Linux
 
-Windows や macOS では、OS が提供するサンドボックス API（Win32 の Job Object や macOS の App Sandbox）を使える。しかし Linux にはブラウザ向けの統一的な sandbox API が存在しない。
+On Windows and macOS, the OS provides sandbox APIs (Win32 Job Objects and macOS App Sandbox, respectively). However, Linux has no unified sandbox API designed for browsers.
 
-そこで Chromium は Linux 上で **2つのサンドボックス方式** を用意している:
+To address this, Chromium provides **two sandbox mechanisms** on Linux:
 
-| 方式 | 仕組み | 必要な条件 |
+| Method | Mechanism | Required Condition |
 |------|--------|-----------|
-| **Namespace sandbox** | Linux カーネルの unprivileged user namespaces を利用 | カーネルが `unprivileged_userns_clone` を許可していること |
-| **SUID sandbox** | `chrome-sandbox` という SUID ビット付きバイナリを利用 | `chrome-sandbox` が root 所有で mode 4755 であること |
+| **Namespace sandbox** | Uses Linux kernel's unprivileged user namespaces | Kernel must allow `unprivileged_userns_clone` |
+| **SUID sandbox** | Uses a `chrome-sandbox` binary with the SUID bit set | `chrome-sandbox` must be owned by root with mode 4755 |
 
-Chromium はまず namespace sandbox を試み、使えなければ SUID sandbox にフォールバックする。**どちらも使えない場合、アプリはクラッシュする。**
+Chromium first tries the namespace sandbox and falls back to the SUID sandbox if unavailable. **If neither is available, the app crashes.**
 
-### Namespace sandbox が使えないケース
+### Cases Where the Namespace Sandbox Is Unavailable
 
-Ubuntu 24.04 では、AppArmor がデフォルトで unprivileged user namespaces を制限するようになった。これは namespace sandbox を悪用する攻撃（カーネルの攻撃面が増える問題）への対策だが、結果として Electron アプリが namespace sandbox を使えなくなるケースが出てきている。
+In Ubuntu 24.04, AppArmor restricts unprivileged user namespaces by default. This is a countermeasure against attacks that exploit namespace sandboxing (which increases the kernel's attack surface), but it results in cases where Electron apps can no longer use the namespace sandbox.
 
-参考: [Chromium Docs - AppArmor User Namespace Restrictions](https://chromium.googlesource.com/chromium/src/+/main/docs/security/apparmor-userns-restrictions.md)
+Reference: [Chromium Docs - AppArmor User Namespace Restrictions](https://chromium.googlesource.com/chromium/src/+/main/docs/security/apparmor-userns-restrictions.md)
 
 ---
 
-## 3. SUID sandbox の仕組み
+## 3. How the SUID Sandbox Works
 
-### chrome-sandbox バイナリとは
+### The chrome-sandbox Binary
 
-Electron のディストリビューションには `chrome-sandbox` というバイナリが含まれている。
-開発環境では以下の場所にある:
+Electron's distribution includes a binary called `chrome-sandbox`.
+In a development environment, it is located at:
 
 ```
 node_modules/electron/dist/chrome-sandbox
 ```
 
-パッケージ後のアプリでは:
+In a packaged app:
 
 ```
-/opt/MyApp/chrome-sandbox       # .deb の場合
-./resources/chrome-sandbox      # AppImage 内部
+/opt/MyApp/chrome-sandbox       # for .deb
+./resources/chrome-sandbox      # inside AppImage
 ```
 
-### SUID ビットとは
+### What Is the SUID Bit?
 
-SUID（Set User ID）は Unix の権限ビットの一つで、**実行時にファイルの所有者の権限で動作する** ことを意味する。
+SUID (Set User ID) is a Unix permission bit that means **the file runs with the permissions of its owner** when executed.
 
 ```bash
-# 通常のバイナリ
+# Normal binary
 -rwxr-xr-x 1 user user 12345 chrome-sandbox
 
-# SUID ビットが設定されたバイナリ
+# Binary with SUID bit set
 -rwsr-xr-x 1 root root 12345 chrome-sandbox
 ```
 
-`chrome-sandbox` に SUID ビットを設定すると、一般ユーザーが実行しても **root 権限で起動** する。これにより、sandbox の設定に必要な特権操作（chroot、setuid など）を実行できるようになる。
+When the SUID bit is set on `chrome-sandbox`, even when a regular user executes it, it **runs with root privileges**. This allows the privileged operations required for sandbox setup (chroot, setuid, etc.) to be performed.
 
-### 設定方法
+### How to Configure
 
 ```bash
 sudo chown root:root /path/to/chrome-sandbox
 sudo chmod 4755 /path/to/chrome-sandbox
 ```
 
-`4755` の意味:
-- `4` = SUID ビット
-- `7` = 所有者に rwx（読み・書き・実行）
-- `5` = グループに r-x（読み・実行）
-- `5` = その他に r-x（読み・実行）
+Meaning of `4755`:
+- `4` = SUID bit
+- `7` = Owner has rwx (read, write, execute)
+- `5` = Group has r-x (read, execute)
+- `5` = Others have r-x (read, execute)
 
-### なぜ開発モードで問題になるか
+### Why This Is a Problem in Development Mode
 
-`node_modules/electron/dist/chrome-sandbox` は npm/pnpm でインストールされるため、所有者は一般ユーザーであり SUID ビットも設定されていない。手動で設定することもできるが、`node_modules` を再インストールするたびにリセットされる。
+`node_modules/electron/dist/chrome-sandbox` is installed via npm/pnpm, so the owner is a regular user and the SUID bit is not set. While it can be set manually, it resets every time `node_modules` is reinstalled.
 
-そのため、**開発時には sandbox を無効化するのが現実的な選択** になる。
+Therefore, **disabling the sandbox during development is the pragmatic choice**.
 
 ---
 
-## 4. パッケージ形式ごとの対策
+## 4. Solutions by Package Format
 
-### 4.1 .deb パッケージ — SUID ビットで sandbox 有効
+### 4.1 .deb Packages --- Sandbox Enabled via SUID Bit
 
-`.deb` パッケージは `sudo dpkg -i` でインストールするため、root 権限でファイルを配置できる。`electron-installer-debian` は、生成する `.deb` の中で `chrome-sandbox` に適切な権限を設定する。
+`.deb` packages are installed with `sudo dpkg -i`, so files can be placed with root privileges. `electron-installer-debian` sets the appropriate permissions on `chrome-sandbox` in the generated `.deb`.
 
 ```
-# .deb パッケージ内の chrome-sandbox
+# chrome-sandbox inside the .deb package
 -rwsr-xr-x 1 root root  chrome-sandbox
 ```
 
-**結果:** sandbox が正常に動作する。`ELECTRON_DISABLE_SANDBOX` は不要。
+**Result:** The sandbox works correctly. `ELECTRON_DISABLE_SANDBOX` is not needed.
 
 ```bash
-# .deb インストール後の起動（特別な設定は不要）
+# Launching after .deb installation (no special configuration needed)
 Amical
 ```
 
-これが最もセキュアな配布方法だ。
+This is the most secure distribution method.
 
-### 4.2 AppImage — `--no-sandbox` フラグ自動付与
+### 4.2 AppImage --- `--no-sandbox` Flag Automatically Applied
 
-AppImage は単一の実行可能ファイルで、sudo 不要で動作する。つまり SUID ビットを設定する手段がない。
+AppImage is a single executable file that runs without sudo. This means there is no way to set the SUID bit.
 
-[electron-builder の PR #4496](https://github.com/electron-userland/electron-builder/pull/4496) により、**Electron v5 以降の AppImage では `--no-sandbox` フラグがデフォルトで付与される** ようになった（electron-builder v22.10.3 以降）。
+Thanks to [electron-builder PR #4496](https://github.com/electron-userland/electron-builder/pull/4496), **the `--no-sandbox` flag is applied by default for Electron v5+ AppImages** (electron-builder v22.10.3 and later).
 
-これにより、ユーザーが何も意識しなくても AppImage は起動する。ただし sandbox は無効な状態で動作している。
+This allows AppImages to launch without the user having to do anything. However, the sandbox is disabled.
 
 ```bash
-# AppImage の起動（内部で --no-sandbox が自動付与される）
+# Launching the AppImage (--no-sandbox is automatically applied internally)
 chmod +x ./Amical-1.1.0-x64.AppImage
 ./Amical-1.1.0-x64.AppImage
 ```
 
-`@reforged/maker-appimage`（Electron Forge 向けの AppImage Maker）を使う場合も同様の挙動になる。
+The same behavior applies when using `@reforged/maker-appimage` (AppImage Maker for Electron Forge).
 
-> **補足:** `--no-sandbox` が自動付与されない古いバージョンの場合、冒頭に書いた Segmentation Fault が発生する。
+> **Note:** With older versions that do not automatically apply `--no-sandbox`, the Segmentation Fault described at the beginning of this article will occur.
 
-### 4.3 開発モード (pnpm start) — 環境変数で sandbox 無効化
+### 4.3 Development Mode (pnpm start) --- Disable Sandbox via Environment Variable
 
-開発中は `node_modules` 内の Electron を直接使うため、`chrome-sandbox` に SUID ビットが設定されていない。
+During development, the Electron binary in `node_modules` is used directly, so the SUID bit is not set on `chrome-sandbox`.
 
 ```bash
-# これは失敗する
+# This will fail
 pnpm start
 # → The SUID sandbox helper binary was found, but is not configured correctly.
 
-# 環境変数で sandbox を無効化する
+# Disable sandbox via environment variable
 ELECTRON_DISABLE_SANDBOX=1 pnpm start
 ```
 
-`ELECTRON_DISABLE_SANDBOX=1` を設定すると、Electron は内部的に `--no-sandbox` フラグを付与してアプリを起動する。
+Setting `ELECTRON_DISABLE_SANDBOX=1` causes Electron to internally apply the `--no-sandbox` flag when launching the app.
 
-便利なようにラッパースクリプトを用意しておくとよい:
+It is convenient to prepare a wrapper script:
 
 ```bash
 #!/bin/bash
@@ -172,85 +172,85 @@ ELECTRON_DISABLE_SANDBOX=1 pnpm start
 ELECTRON_DISABLE_SANDBOX=1 pnpm start "$@"
 ```
 
-### 4.4 対策の早見表
+### 4.4 Quick Reference Table
 
-| パッケージ形式 | sandbox の状態 | 必要な対策 | sudo |
+| Package Format | Sandbox State | Required Action | sudo |
 |--------------|---------------|-----------|------|
-| `.deb` | **有効** (SUID) | なし | 必要 |
-| AppImage | 無効 (`--no-sandbox` 自動) | なし | 不要 |
-| tar.gz (手動展開) | **動作しない** | 手動で `--no-sandbox` を指定 | 不要 |
-| 開発モード | **動作しない** | `ELECTRON_DISABLE_SANDBOX=1` | 不要 |
+| `.deb` | **Enabled** (SUID) | None | Required |
+| AppImage | Disabled (`--no-sandbox` auto) | None | Not required |
+| tar.gz (manual extraction) | **Does not work** | Manually specify `--no-sandbox` | Not required |
+| Development mode | **Does not work** | `ELECTRON_DISABLE_SANDBOX=1` | Not required |
 
 ---
 
-## 5. VS Code の事例 — Microsoft も同じ問題に直面している
+## 5. The VS Code Case --- Microsoft Faced the Same Problem
 
-「sandbox の問題なんて、自分のアプリの設定が悪いんじゃないか」と思うかもしれない。しかし、**世界で最も広く使われている Electron アプリである VS Code も、まったく同じ問題に対処してきた。**
+You might think "the sandbox problem is just because my app's configuration is wrong." However, **VS Code, the most widely used Electron app in the world, has dealt with exactly the same problem.**
 
-### VS Code の対応の歴史
+### VS Code's History of Addressing This
 
-1. **Electron 6 移行時 (2019年):** Electron 6 で sandbox がデフォルト有効になった際、VS Code のビルドスクリプト全体に `--no-sandbox` を設定する [PR #81096](https://github.com/microsoft/vscode/pull/81096) がマージされた。
+1. **Electron 6 migration (2019):** When Electron 6 made sandbox enabled by default, [PR #81096](https://github.com/microsoft/vscode/pull/81096) was merged to set `--no-sandbox` across VS Code's entire build scripts.
 
-2. **tar.gz 配布:** VS Code の tar.gz 版（ユーザーインストール）では、`chrome-sandbox` に SUID ビットを設定できないため、起動スクリプトが `--no-sandbox` を付与する形で配布されていた。
+2. **tar.gz distribution:** For VS Code's tar.gz version (user install), the SUID bit cannot be set on `chrome-sandbox`, so the launch script was distributed with `--no-sandbox` applied.
 
-3. **sandbox 移行ブログ (2022年):** VS Code チームは [Migrating VS Code to Process Sandboxing](https://code.visualstudio.com/blogs/2022/11/28/vscode-sandbox) というブログ記事を公開し、レンダラープロセスからの Node.js 依存を段階的に除去する取り組みを説明した。sandbox を有効にするために、数年かけてアーキテクチャを変更した。
+3. **Sandbox migration blog (2022):** The VS Code team published [Migrating VS Code to Process Sandboxing](https://code.visualstudio.com/blogs/2022/11/28/vscode-sandbox), explaining their effort to incrementally remove Node.js dependencies from the renderer process. They changed the architecture over several years to enable the sandbox.
 
-4. **現在:** `.deb` や `.rpm` パッケージでは sandbox が有効な状態で配布されているが、コンテナ内やユーザーインストールでは依然として `--no-sandbox` が必要なケースがある。
+4. **Currently:** `.deb` and `.rpm` packages are distributed with sandbox enabled, but `--no-sandbox` is still required in containers and for user installs in some cases.
 
-### VS Code からの教訓
+### Lessons from VS Code
 
-- **sandbox の問題は Electron アプリ共通の課題であり、アプリ固有の問題ではない**
-- Microsoft ほどのリソースがあっても、sandbox 対応には数年かかった
-- パッケージ形式ごとに異なる対策が必要なのは、Linux のセキュリティモデルに起因する構造的な問題
+- **The sandbox issue is a common Electron app challenge, not specific to any individual app**
+- Even with Microsoft's resources, sandbox support took years
+- The need for different solutions per package format is a structural issue stemming from Linux's security model
 
-参考:
+References:
 - [VS Code Issue #81056 - VSCode not starting unless --no-sandbox provided](https://github.com/microsoft/vscode/issues/81056)
 - [VS Code Issue #76963 - Linux tests require --no-sandbox](https://github.com/microsoft/vscode/issues/76963)
 - [Electron Issue #18265 - Need a way to run with --no-sandbox by default](https://github.com/electron/electron/issues/18265)
 
 ---
 
-## 6. セキュリティへの影響
+## 6. Security Implications
 
-### sandbox を無効にするリスク
+### Risks of Disabling the Sandbox
 
-sandbox を無効にすると、レンダラープロセスが OS のリソースに直接アクセスできるようになる。具体的には:
+Disabling the sandbox allows renderer processes to directly access OS resources. Specifically:
 
-- ファイルシステムへの制限なしのアクセス
-- ネットワーク通信の制限解除
-- プロセス間通信の制限解除
+- Unrestricted access to the filesystem
+- Removal of network communication restrictions
+- Removal of inter-process communication restrictions
 
-**ブラウザの場合、これは致命的** だ。ユーザーが訪問する任意の Web サイトのコードが、ローカルファイルを読み取れてしまう。
+**For a browser, this is critical.** Code from any website the user visits could read local files.
 
-### デスクトップアプリでの現実的な判断
+### Pragmatic Considerations for Desktop Apps
 
-しかし、**デスクトップ Electron アプリの場合、状況はブラウザとは異なる:**
+However, **for desktop Electron apps, the situation differs from browsers:**
 
-1. **信頼されたコードのみが実行される:** デスクトップアプリは開発者が書いたコードを実行する。任意の Web サイトを開くブラウザとは異なり、レンダラープロセスで実行されるコードは基本的に信頼されている。
+1. **Only trusted code is executed:** Desktop apps execute code written by the developer. Unlike browsers that open arbitrary websites, the code running in renderer processes is fundamentally trusted.
 
-2. **Node.js integration:** 多くの Electron アプリは `nodeIntegration: true` や `preload` スクリプトを通じて、レンダラーからシステムリソースにアクセスしている。sandbox を有効にしても、IPC を通じて同等のアクセスが可能なことが多い。
+2. **Node.js integration:** Many Electron apps access system resources from the renderer through `nodeIntegration: true` or `preload` scripts. Even with sandbox enabled, equivalent access is often possible through IPC.
 
-3. **攻撃ベクトルが限定的:** デスクトップアプリの攻撃は通常、悪意あるファイルを開かせるか、アプリ内の XSS 脆弱性を突くことで発生する。アプリが外部コンテンツを表示しない場合、リスクは限定的。
+3. **Limited attack vectors:** Attacks on desktop apps typically involve tricking the user into opening a malicious file or exploiting XSS vulnerabilities within the app. If the app does not display external content, the risk is limited.
 
-### 推奨されるアプローチ
+### Recommended Approach
 
-| 状況 | 推奨 |
+| Situation | Recommendation |
 |------|------|
-| `.deb` / `.rpm` で配布 | sandbox **有効** (SUID ビット設定) |
-| AppImage で配布 | `--no-sandbox` で sandbox 無効（仕方ない） |
-| 開発中 | `ELECTRON_DISABLE_SANDBOX=1` で sandbox 無効 |
-| 外部 Web コンテンツを表示するアプリ | sandbox 有効を強く推奨 |
-| 社内ツール・限定配布 | sandbox 無効でも許容範囲 |
+| Distributing via `.deb` / `.rpm` | Sandbox **enabled** (SUID bit set) |
+| Distributing via AppImage | Sandbox disabled with `--no-sandbox` (unavoidable) |
+| During development | Sandbox disabled with `ELECTRON_DISABLE_SANDBOX=1` |
+| Apps displaying external web content | Strongly recommend enabling sandbox |
+| Internal tools / limited distribution | Disabling sandbox is acceptable |
 
-**重要:** sandbox を無効にする場合でも、`contextIsolation: true` と `nodeIntegration: false` は維持すべきだ。これらは sandbox とは別のセキュリティ層であり、レンダラープロセスからメインプロセスへの不正アクセスを防ぐ。
+**Important:** Even when disabling the sandbox, `contextIsolation: true` and `nodeIntegration: false` should be maintained. These are separate security layers from the sandbox that prevent unauthorized access from renderer processes to the main process.
 
 ---
 
-## 7. 実装の詳細
+## 7. Implementation Details
 
-### 7.1 forge.config.ts での MakerDeb 設定
+### 7.1 MakerDeb Configuration in forge.config.ts
 
-`electron-forge` で `.deb` パッケージをビルドする場合、`MakerDeb` の設定で依存パッケージを指定する:
+When building `.deb` packages with `electron-forge`, dependency packages are specified in the `MakerDeb` configuration:
 
 ```typescript
 // forge.config.ts
@@ -274,9 +274,9 @@ new MakerDeb({
 }),
 ```
 
-`electron-installer-debian` が `.deb` を生成する際に、`chrome-sandbox` に SUID ビットを自動設定してくれる。開発者が明示的に何かする必要はない。
+`electron-installer-debian` automatically sets the SUID bit on `chrome-sandbox` when generating the `.deb`. No explicit action is required from the developer.
 
-### 7.2 MakerAppImage の設定
+### 7.2 MakerAppImage Configuration
 
 ```typescript
 // forge.config.ts
@@ -293,9 +293,9 @@ new MakerAppImage({
 }),
 ```
 
-AppImage 内部では `--no-sandbox` が自動付与されるため、sandbox に関する追加設定は不要。
+Since `--no-sandbox` is automatically applied inside the AppImage, no additional sandbox-related configuration is needed.
 
-### 7.3 package.json のスクリプト
+### 7.3 package.json Scripts
 
 ```json
 {
@@ -306,15 +306,15 @@ AppImage 内部では `--no-sandbox` が自動付与されるため、sandbox �
 }
 ```
 
-開発時の起動:
+Launching in development mode:
 
 ```bash
 ELECTRON_DISABLE_SANDBOX=1 pnpm start
 ```
 
-### 7.4 postPackage フックの活用（参考）
+### 7.4 Using the postPackage Hook (Reference)
 
-現時点で Linux 向けの `postPackage` フック処理はないが、必要になった場合はここで `chrome-sandbox` のパーミッション設定などを行うことができる:
+There is currently no `postPackage` hook processing for Linux, but if needed, it could be used to set `chrome-sandbox` permissions:
 
 ```typescript
 // forge.config.ts
@@ -335,27 +335,27 @@ postPackage: async (_forgeConfig, options) => {
 
 ---
 
-## 8. まとめ
+## 8. Summary
 
-### パッケージ形式ごとの sandbox 対策早見表
+### Sandbox Solution Quick Reference by Package Format
 
-| | .deb | AppImage | tar.gz | 開発モード |
+| | .deb | AppImage | tar.gz | Development mode |
 |---|---|---|---|---|
-| **インストール権限** | root (sudo) | 一般ユーザー | 一般ユーザー | 一般ユーザー |
-| **sandbox** | 有効 (SUID) | 無効 (自動) | 要手動対応 | 無効 (環境変数) |
-| **SUID ビット** | 自動設定 | N/A | 手動設定可 | 未設定 |
-| **追加設定** | 不要 | 不要 | `--no-sandbox` | `ELECTRON_DISABLE_SANDBOX=1` |
-| **セキュリティ** | 最も安全 | 許容範囲 | 設定次第 | 開発限定 |
+| **Install privileges** | root (sudo) | Regular user | Regular user | Regular user |
+| **Sandbox** | Enabled (SUID) | Disabled (auto) | Manual setup required | Disabled (env var) |
+| **SUID bit** | Auto-configured | N/A | Can be set manually | Not set |
+| **Additional config** | None | None | `--no-sandbox` | `ELECTRON_DISABLE_SANDBOX=1` |
+| **Security** | Most secure | Acceptable | Depends on config | Development only |
 
-### 要点
+### Key Takeaways
 
-1. **sandbox エラーは Electron アプリ共通の Linux 固有問題。** Windows/macOS では発生しない。
-2. **`.deb` パッケージが最もセキュア。** `chrome-sandbox` に SUID ビットが自動設定される。
-3. **AppImage は `--no-sandbox` で sandbox を無効化して動作する。** sudo 不要と引き換えのトレードオフ。
-4. **開発時は `ELECTRON_DISABLE_SANDBOX=1` が必要。** `node_modules` 内の `chrome-sandbox` には SUID ビットがないため。
-5. **VS Code も同じ問題に対処してきた。** これは Electron フレームワークの構造的な課題であり、個別アプリの問題ではない。
+1. **Sandbox errors are a Linux-specific issue common to all Electron apps.** They do not occur on Windows/macOS.
+2. **`.deb` packages are the most secure.** The SUID bit is automatically set on `chrome-sandbox`.
+3. **AppImage disables the sandbox with `--no-sandbox` to function.** This is a trade-off for not requiring sudo.
+4. **`ELECTRON_DISABLE_SANDBOX=1` is needed during development.** The `chrome-sandbox` in `node_modules` does not have the SUID bit set.
+5. **VS Code has dealt with the same problem.** This is a structural challenge of the Electron framework, not an issue with individual apps.
 
-### 参考リンク
+### References
 
 - [Chromium Linux Sandboxing](https://chromium.googlesource.com/chromium/src/+/b4730a0c2773d8f6728946013eb812c6d3975bec/docs/linux_sandboxing.md)
 - [Chromium Linux SUID Sandbox](https://chromium.googlesource.com/chromium/src/+/main/docs/linux/suid_sandbox_development.md)

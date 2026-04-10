@@ -1,22 +1,22 @@
-# Electron製デスクトップアプリのLinux移植記 — クリップボード、キー入力、通知音で遭遇した問題と対策
+# Porting an Electron Desktop App to Linux --- Issues and Solutions for Clipboard, Key Input, and Notification Sounds
 
-## 導入
+## Introduction
 
-macOS/Windows向けに開発されたElectronデスクトップアプリ（音声ディクテーションツール）をLinuxへ移植した際に遭遇した問題と、その解決策をまとめます。OAuthの話題は別記事に譲り、本記事ではそれ以外の問題群、具体的には**クリップボード操作**、**キー入力監視**、**通知音再生**、**ウィンドウ管理**、**ヘルパープロセス**、**初期化順序**に焦点を当てます。
+This article summarizes the problems encountered and their solutions when porting an Electron desktop app (a voice dictation tool) originally developed for macOS/Windows to Linux. OAuth-related topics are covered in a separate article; this article focuses on the remaining issues, specifically **clipboard operations**, **key input monitoring**, **notification sound playback**, **window management**, **helper processes**, and **initialization order**.
 
-対象環境はUbuntu 24.04 LTS / GNOME / Wayland です。
+The target environment is Ubuntu 24.04 LTS / GNOME / Wayland.
 
 ---
 
-## 1. ペースト（クリップボード）問題
+## 1. Paste (Clipboard) Issue
 
-### 問題
+### Problem
 
-音声認識の結果をアクティブなアプリケーションにペーストする機能が、Linuxで動作しませんでした。macOS/Windowsではネイティブヘルパーにクリップボードの読み書きとキーストロークのシミュレーションの両方を委任していますが、Linux上では`wl-copy`が非同期で動作するため、**クリップボードへの書き込みが完了する前にペーストキーストロークが発火される**というレースコンディションが発生しました。
+The feature that pastes speech recognition results into the active application did not work on Linux. On macOS/Windows, both clipboard read/write and keystroke simulation are delegated to native helpers, but on Linux, `wl-copy` operates asynchronously, causing a **race condition where the paste keystroke fires before the clipboard write completes**.
 
-### 解決策：Electron clipboard API + ヘルパーの役割分担
+### Solution: Electron clipboard API + Division of Responsibilities with the Helper
 
-Electron本体のプロセスで同期的にクリップボードに書き込み、ヘルパーにはキーストロークの送信のみを依頼する方式にしました。
+The solution was to write to the clipboard synchronously from the Electron main process and delegate only keystroke sending to the helper.
 
 ```typescript
 // recording-manager.ts
@@ -53,19 +53,19 @@ if (isLinux()) {
 }
 ```
 
-ポイントは`keystrokeOnly: true`フラグです。ヘルパー側ではこのフラグを見て、クリップボード操作をスキップしキーストロークだけ送信します。
+The key detail is the `keystrokeOnly: true` flag. On the helper side, this flag causes the clipboard operation to be skipped, sending only the keystroke.
 
-### キーストロークの選択：Shift+Insert
+### Keystroke Choice: Shift+Insert
 
-もう一つの問題は、**どのキーストロークでペーストをシミュレートするか**です。
+Another problem was **which keystroke to use for simulating paste**.
 
-- `Ctrl+V` --- ターミナルアプリでは動作しない（ターミナルでは`Ctrl+Shift+V`が慣例）
-- `Ctrl+Shift+V` --- VS Codeではプレーンテキストペーストではなくマークダウンプレビューが開いてしまう
+- `Ctrl+V` --- Does not work in terminal applications (terminals conventionally use `Ctrl+Shift+V`)
+- `Ctrl+Shift+V` --- In VS Code, this opens the markdown preview instead of performing a plain text paste
 
-最終的に `Shift+Insert` を採用しました。これはGUIアプリとターミナルの両方で動作します。
+Ultimately, `Shift+Insert` was adopted. This works in both GUI applications and terminals.
 
 ```typescript
-// paste-text.ts (LinuxHelper側)
+// paste-text.ts (LinuxHelper side)
 async function simulatePaste(): Promise<void> {
   try {
     // Try v0.1.x format first (more common on Ubuntu 24.04)
@@ -77,19 +77,19 @@ async function simulatePaste(): Promise<void> {
 }
 ```
 
-`ydotool`はバージョンによってAPIが異なるため（v0.1.xはキー名形式、v1.x以降はキーコード形式）、両方にフォールバックしています。
+`ydotool` has different APIs depending on the version (v0.1.x uses key name format, v1.x and later uses keycode format), so a fallback for both is provided.
 
 ---
 
-## 2. キー入力・ホットキー — evdevによるグローバルキー監視
+## 2. Key Input / Hotkeys --- Global Key Monitoring with evdev
 
-### 問題
+### Problem
 
-macOSでは`CGEvent`タップ、WindowsではLow-Level Keyboard Hookでグローバルにキー入力を監視できます。LinuxにはElectron標準でそのような仕組みがなく、`globalShortcut` APIでは修飾キーの組み合わせしか登録できないため、Push-to-Talk（キーを押している間だけ録音）のようなユースケースに対応できません。
+On macOS, global key input can be monitored with `CGEvent` taps, and on Windows with Low-Level Keyboard Hooks. Linux has no such built-in mechanism for Electron, and the `globalShortcut` API only supports modifier key combinations, making it insufficient for use cases like Push-to-Talk (recording only while a key is held down).
 
-### 解決策：evdevデバイスの直接読み取り
+### Solution: Direct Reading of evdev Devices
 
-`/dev/input/eventN` デバイスを直接開いて `input_event` 構造体をパースする方式を採用しました。
+The approach adopted was to directly open `/dev/input/eventN` devices and parse `input_event` structs.
 
 ```typescript
 // evdev/monitor.ts
@@ -110,7 +110,7 @@ function parseInputEvent(
 }
 ```
 
-キーボードデバイスの特定には `/sys/class/input/eventN/device/capabilities/key` を読み取り、ビットが20以上立っているデバイスを「キーボード」と判定しています。マウスやゲームパッドなどのデバイスを誤って監視しないための工夫です。
+Keyboard devices are identified by reading `/sys/class/input/eventN/device/capabilities/key` and treating devices with more than 20 bits set as "keyboards." This prevents accidentally monitoring mice, gamepads, and other devices.
 
 ```typescript
 // evdev/monitor.ts
@@ -140,11 +140,11 @@ function scanKeyboardDevices(): string[] {
 }
 ```
 
-> **前提条件**: ユーザーが `input` グループに所属している必要があります (`sudo usermod -aG input $USER`)。
+> **Prerequisite**: The user must be a member of the `input` group (`sudo usermod -aG input $USER`).
 
-### evdevキーコードのマッピング
+### evdev Keycode Mapping
 
-macOSとWindowsではそれぞれ独自のキーコード体系を使いますが、Linuxではevdevキーコードが標準です。3プラットフォーム分のマッピングテーブルを用意し、実行時にプラットフォームを判定して切り替えます。
+macOS and Windows each use their own keycode systems, while Linux uses evdev keycodes as the standard. Mapping tables for all three platforms are prepared, and the appropriate one is selected at runtime based on the platform.
 
 ```typescript
 // keycode-map.ts
@@ -161,7 +161,7 @@ const linuxEvdevToKey: Record<number, string> = {
   464: "Fn",
   // Letters (evdev codes 16-50 follow QWERTY layout)
   16: "Q", 17: "W", 18: "E", /* ... */
-  // ...全130以上のキーに対応
+  // ...over 130 keys supported
 };
 
 export function getKeyFromKeycode(keycode: number): string | undefined {
@@ -174,9 +174,9 @@ export function getKeyFromKeycode(keycode: number): string | undefined {
 }
 ```
 
-### デフォルトショートカット
+### Default Shortcuts
 
-macOSの `Fn` キーのようにLinuxで「他のアプリと干渉しにくいキー」を探した結果、Push-to-Talkには `Ctrl+Super` を採用しました。
+After searching for a key on Linux that is unlikely to conflict with other applications --- similar to the `Fn` key on macOS --- `Ctrl+Super` was adopted for Push-to-Talk.
 
 ```typescript
 // app-settings.ts
@@ -200,15 +200,15 @@ if (isLinux()) {
 
 ---
 
-## 3. 通知音 — Linuxでの音声再生
+## 3. Notification Sounds --- Audio Playback on Linux
 
-### 問題
+### Problem
 
-macOSでは`NSSound`、Windowsでは`PlaySound` APIで手軽に効果音を鳴らせますが、Linuxには統一的な音声再生APIがありません。
+On macOS, `NSSound` is available, and on Windows, the `PlaySound` API makes it easy to play sound effects. Linux has no unified audio playback API.
 
-### 解決策：GStreamerをデタッチで起動
+### Solution: Launch GStreamer as a Detached Process
 
-`gst-play-1.0`（GStreamerのコマンドラインプレーヤー）をdetachedプロセスとして起動する方式を採用しました。RPC応答をブロックしないようにするためです。
+The approach adopted was to launch `gst-play-1.0` (GStreamer's command-line player) as a detached process. This avoids blocking RPC responses.
 
 ```typescript
 // handlers/recording.ts (LinuxHelper)
@@ -230,27 +230,27 @@ function playSound(soundName: string): void {
 }
 ```
 
-録音開始・停止時にシステムのオーディオをミュートする機能（自分の声がスピーカーから出力されるのを防ぐ）には `pactl`（PulseAudio/PipeWireのCLIツール）を使っています。
+The feature that mutes system audio during recording (to prevent the user's voice from being output through speakers) uses `pactl` (PulseAudio/PipeWire CLI tool).
 
 ```typescript
-// 録音開始時にシステム音声をミュート
+// Mute system audio when recording starts
 await execFileAsync("pactl", ["set-sink-mute", "@DEFAULT_SINK@", "1"]);
 
-// 録音終了時に元に戻す
+// Unmute when recording ends
 await execFileAsync("pactl", ["set-sink-mute", "@DEFAULT_SINK@", "0"]);
 ```
 
 ---
 
-## 4. ウィンドウ管理 — Linux固有のウィンドウ設定
+## 4. Window Management --- Linux-Specific Window Settings
 
-### 問題
+### Problem
 
-macOSでは`titleBarStyle: "hiddenInset"` + vibrancyでネイティブ感のあるウィンドウが作れます。Windowsでは`titleBarStyle: "hidden"` + `titleBarOverlay`でカスタムタイトルバーが実現できます。しかし、Linuxではどちらの方式も期待通りに動作せず、描画が崩れることがありました。
+On macOS, `titleBarStyle: "hiddenInset"` + vibrancy creates a native-feeling window. On Windows, `titleBarStyle: "hidden"` + `titleBarOverlay` achieves a custom title bar. However, on Linux, neither approach works as expected, and rendering artifacts can occur.
 
-### 解決策：Linuxではデフォルトのフレームを使用
+### Solution: Use the Default Frame on Linux
 
-Linuxでは無理にカスタマイズせず、OSのデフォルトウィンドウフレームをそのまま使う方針にしました。
+On Linux, instead of forcing customization, the default OS window frame is used as-is.
 
 ```typescript
 // window-manager.ts
@@ -276,7 +276,7 @@ this.mainWindow = new BrowserWindow({
 });
 ```
 
-オンボーディングウィンドウでも同様です。
+The same applies to the onboarding window.
 
 ```typescript
 // window-manager.ts (onboarding window)
@@ -291,17 +291,17 @@ this.onboardingWindow = new BrowserWindow({
 });
 ```
 
-`process.platform === "linux"` のケースでは空オブジェクト `{}` をスプレッドするだけなので、何も追加されず `frame: true` がそのまま残ります。シンプルですが確実な方法です。
+In the `process.platform === "linux"` case, an empty object `{}` is spread, so nothing is added and `frame: true` remains as-is. Simple but reliable.
 
 ---
 
-## 5. LinuxHelper — ヘルパープロセスの役割
+## 5. LinuxHelper --- The Role of the Helper Process
 
-macOSには`SwiftHelper`（Swift製）、Windowsには`WindowsHelper.exe`がありますが、Linuxには当初ネイティブヘルパーが存在しませんでした。新たに **LinuxHelper** をTypeScript（Node.js）で作成しました。
+macOS has `SwiftHelper` (written in Swift), and Windows has `WindowsHelper.exe`, but Linux initially had no native helper. A new **LinuxHelper** was created in TypeScript (Node.js).
 
-### アーキテクチャ
+### Architecture
 
-LinuxHelperは子プロセスとして起動され、stdin/stdout経由のJSON-RPCでElectron本体と通信します。
+LinuxHelper is launched as a child process and communicates with the Electron main process via JSON-RPC over stdin/stdout.
 
 ```typescript
 // main.ts (LinuxHelper)
@@ -322,21 +322,21 @@ rl.on("line", (line: string) => {
 });
 ```
 
-### 提供するRPCメソッド
+### Provided RPC Methods
 
-| メソッド | 役割 |
+| Method | Role |
 |---|---|
-| `pasteText` | クリップボード操作+ペーストキーストローク |
-| `startRecording` | 録音開始（通知音再生、システムミュート） |
-| `stopRecording` | 録音停止（ミュート解除、通知音再生） |
-| `setShortcuts` | ショートカットキー設定の受け渡し |
-| `recheckPressedKeys` | 押下中キーの再確認 |
-| `getAccessibilityContext` | アクティブウィンドウの情報取得 |
-| `getAccessibilityStatus` | 必要なコマンド・権限のチェック |
+| `pasteText` | Clipboard operation + paste keystroke |
+| `startRecording` | Start recording (play notification sound, system mute) |
+| `stopRecording` | Stop recording (unmute, play notification sound) |
+| `setShortcuts` | Pass shortcut key configuration |
+| `recheckPressedKeys` | Recheck currently pressed keys |
+| `getAccessibilityContext` | Get active window information |
+| `getAccessibilityStatus` | Check required commands/permissions |
 
-### アクティブウィンドウの取得
+### Getting the Active Window
 
-GNOMEのD-Bus経由でアクティブウィンドウの情報を取得します。
+Active window information is retrieved via GNOME's D-Bus.
 
 ```typescript
 // handlers/accessibility.ts
@@ -364,7 +364,7 @@ async function getGnomeActiveWindow() {
 }
 ```
 
-### プラットフォーム検出とヘルパー名の解決
+### Platform Detection and Helper Name Resolution
 
 ```typescript
 // platform.ts
@@ -383,13 +383,13 @@ export function getNativeHelperDir(): string {
 
 ---
 
-## 6. 初期化順序の違い — 録音サービスの遅延初期化
+## 6. Initialization Order Differences --- Deferred Initialization of Recording Services
 
-### 問題
+### Problem
 
-Electronアプリの起動時、オンボーディング（初回セットアップ）フローの中でOAuth認証が行われます。Linuxでは、NativeBridge（LinuxHelper）の起動とOAuthのBrowserWindowベースの認証フローが同時に走ると、`amical://` プロトコルハンドラが競合し、second-instanceイベントが発火して認証状態が失われることがありました。
+When the Electron app starts, OAuth authentication is performed during the onboarding (initial setup) flow. On Linux, when NativeBridge (LinuxHelper) startup and the BrowserWindow-based OAuth authentication flow run concurrently, the `amical://` protocol handler conflicts, triggering a second-instance event that causes the pending authentication state to be lost.
 
-### 解決策：Linuxのみ録音サービスを遅延初期化
+### Solution: Deferred Initialization of Recording Services on Linux Only
 
 ```typescript
 // app-manager.ts
@@ -409,7 +409,7 @@ if (onboardingCheck.needed) {
 }
 ```
 
-開発モードでのオンボーディング完了後も同様に、Linuxではまず録音サービスを初期化してからウィンドウをセットアップします。
+Similarly, after onboarding completes in development mode, on Linux the recording services are initialized first before setting up windows.
 
 ```typescript
 // app-manager.ts (onboarding completed event)
@@ -428,61 +428,61 @@ onboardingService.on("completed", () => {
 
 ---
 
-## 7. ショートカットキー設定 — キーイベントの横取りが必要だった理由
+## 7. Shortcut Key Settings --- Why Intercepting Key Events Was Necessary
 
-### 前提：ショートカットキー変更のUI
+### Background: The Shortcut Key Change UI
 
-本アプリでは、設定画面でPush-to-Talk（押している間だけ録音）やToggle Recording（録音のON/OFF切り替え）などのショートカットキーをユーザーが自由に変更できます。変更UIは「録音モード」方式です。ユーザーが鉛筆アイコンをクリックすると録音状態に入り、実際にキーを押すと、その組み合わせが新しいショートカットとして登録されます。キーを離した瞬間にバリデーションが走り、問題なければ保存されます。
+In this app, users can freely change shortcut keys for Push-to-Talk (record while holding), Toggle Recording (toggle recording on/off), and other actions in the settings screen. The change UI uses a "recording mode" approach. When the user clicks the pencil icon, it enters a recording state; when the user actually presses keys, that combination is registered as the new shortcut. Validation runs the moment the keys are released, and if there are no issues, the shortcut is saved.
 
 ```
-[設定画面]
-  Push-to-Talk: [Ctrl+Super]  ✏️  ← クリックすると録音開始
+[Settings Screen]
+  Push-to-Talk: [Ctrl+Super]  ✏️  ← Click to start recording
                 ↓
-  Push-to-Talk: [キーを押してください...]  ✕  ← この状態でキーを押す
+  Push-to-Talk: [Press keys...]  ✕  ← Press keys in this state
                 ↓
-  Push-to-Talk: [Alt+Shift]  ← キーを離すと確定
+  Push-to-Talk: [Alt+Shift]  ← Confirmed when keys are released
 ```
 
-### 問題：Electronの標準キーボードイベントでは対応できない
+### Problem: Electron's Standard Keyboard Events Are Insufficient
 
-macOS/Windowsの実装では、ShortcutManagerが各OSのネイティブヘルパー（SwiftHelper / WindowsHelper）からキーイベントを受け取り、ShortcutManagerの`activeKeys`マップで現在押されているキーを追跡しています。設定画面のReactコンポーネント（`ShortcutInput`）は、tRPCのSubscription経由でこの`activeKeys`の変化をリアルタイムで受け取ります。
+In the macOS/Windows implementation, ShortcutManager receives key events from each OS's native helper (SwiftHelper / WindowsHelper) and tracks currently pressed keys in ShortcutManager's `activeKeys` map. The settings screen React component (`ShortcutInput`) receives `activeKeys` changes in real-time via tRPC Subscription.
 
-ここでLinux特有の問題が2つありました。
+There were two Linux-specific problems here.
 
-**1. Electronの`keydown`/`keyup`イベントはウィンドウにフォーカスがあるときしか発火しない**
+**1. Electron's `keydown`/`keyup` events only fire when the window has focus**
 
-Push-to-Talkのようなグローバルショートカットは、アプリがバックグラウンドにいても動作しなければなりません。Electronの標準的なキーボードイベントはBrowserWindowにフォーカスがあるときしか取得できず、`globalShortcut` APIでは特定のキーの組み合わせしか登録できません。macOS/Windowsでは各OSのネイティブAPIで低レベルキーフックを実現していましたが、Linuxには同等の仕組みがありません。
+Global shortcuts like Push-to-Talk must work even when the app is in the background. Electron's standard keyboard events are only available when a BrowserWindow has focus, and the `globalShortcut` API only allows registering specific key combinations. macOS/Windows achieved low-level key hooks through each OS's native APIs, but Linux has no equivalent mechanism.
 
-**2. evdevキーコードとElectronのキーコードは全く異なる体系**
+**2. evdev keycodes and Electron keycodes are entirely different systems**
 
-Linuxカーネルのevdevが送出するキーコードは、macOSのCGEventキーコードやWindowsのVirtual Keyコードとは完全に別の番号体系です。たとえば同じ`A`キーでも、macOS=0、Windows=0x41、evdev=30と全く異なります。ショートカットの設定値はキーコードの配列として保存されるため、**設定画面でのキーキャプチャもevdevキーコードで統一しなければなりません**。
+The keycodes emitted by the Linux kernel's evdev are completely different numbering systems from macOS's CGEvent keycodes and Windows's Virtual Key codes. For example, the same `A` key is macOS=0, Windows=0x41, evdev=30. Since shortcut settings are stored as keycode arrays, **key capture in the settings screen must also use evdev keycodes consistently**.
 
-### 解決策：ネイティブヘルパーからのキーイベントストリームを設定画面でもそのまま利用
+### Solution: Use the Native Helper's Key Event Stream Directly in the Settings Screen
 
-設計上の鍵は、**ショートカットの実行時（グローバルキー監視）と設定時（UIでのキーキャプチャ）で同じキーイベントソースを使う**ことです。
+The key design decision was to **use the same key event source for both shortcut execution (global key monitoring) and shortcut configuration (UI key capture)**.
 
-#### evdevモニター → ShortcutManager → tRPC Subscription → React UI
+#### evdev Monitor -> ShortcutManager -> tRPC Subscription -> React UI
 
-データの流れは次のようになっています。
+The data flow is as follows.
 
 ```
-/dev/input/eventN (evdevデバイス)
-    ↓ fs.read() でバイナリを読み取り
+/dev/input/eventN (evdev device)
+    ↓ Read binary via fs.read()
 LinuxHelper (evdev/monitor.ts)
-    ↓ JSON-RPCイベントとしてstdoutに書き出し
+    ↓ Write as JSON-RPC event to stdout
 NativeBridge (native-bridge-service.ts)
-    ↓ "helperEvent" イベントとしてemit
+    ↓ Emit as "helperEvent" event
 ShortcutManager (shortcut-manager.ts)
-    ↓ activeKeysマップを更新、"activeKeysChanged"をemit
+    ↓ Update activeKeys map, emit "activeKeysChanged"
 tRPC Subscription (settings.ts: activeKeysUpdates)
-    ↓ WebSocket経由でレンダラーに配信
+    ↓ Deliver to renderer via WebSocket
 ShortcutInput (shortcut-input.tsx)
-    ↓ Reactのstateを更新、UIにキーを表示
+    ↓ Update React state, display keys in UI
 ```
 
-#### ShortcutManagerの「録音モード」
+#### ShortcutManager's "Recording Mode"
 
-設定画面でキーをキャプチャしている間、ShortcutManagerは`isRecordingShortcut`フラグをONにします。このフラグがONの間はショートカットの実行判定（`checkShortcuts`）がスキップされ、キーイベントは純粋にUIへの配信にのみ使われます。
+While the settings screen is capturing keys, ShortcutManager sets the `isRecordingShortcut` flag to ON. While this flag is ON, shortcut execution checks (`checkShortcuts`) are skipped, and key events are used purely for delivery to the UI.
 
 ```typescript
 // shortcut-manager.ts
@@ -496,11 +496,11 @@ private checkShortcuts() {
   if (this.isRecordingShortcut) {
     return;
   }
-  // ...PTT, Toggle等の判定ロジック
+  // ...PTT, Toggle, etc. detection logic
 }
 ```
 
-設定画面のReactコンポーネントは、録音開始時にtRPC mutationで`setShortcutRecordingState(true)`を呼び出し、完了・キャンセル時に`false`に戻します。
+The settings screen React component calls `setShortcutRecordingState(true)` via tRPC mutation when recording starts, and sets it back to `false` on completion or cancellation.
 
 ```typescript
 // shortcut-input.tsx
@@ -528,9 +528,9 @@ api.settings.activeKeysUpdates.useSubscription(undefined, {
 });
 ```
 
-#### Linuxでの修飾キーのハンドリング: flagsChanged
+#### Modifier Key Handling on Linux: flagsChanged
 
-macOSのCGEventでは、修飾キー（Cmd, Ctrl, Shift, Alt）の押下・離上は通常のkeyDown/keyUpではなく `flagsChanged` という別種のイベントとして通知されます。LinuxのevdevモニターではこのmacOS流の設計を踏襲し、修飾キーについては `flagsChanged` イベントとして送出します。
+In macOS's CGEvent, modifier key (Cmd, Ctrl, Shift, Alt) press/release events are reported as a distinct event type called `flagsChanged`, rather than regular keyDown/keyUp. The Linux evdev monitor follows this macOS-style design and emits modifier keys as `flagsChanged` events.
 
 ```typescript
 // evdev/monitor.ts
@@ -549,7 +549,7 @@ if (value === 1) {  // key press
 }
 ```
 
-ShortcutManager側では、`flagsChanged`を受け取ったとき、そのキーコードが既に追跡されていれば離上（keyUp相当）、そうでなければ押下（keyDown相当）として処理します。
+On the ShortcutManager side, when a `flagsChanged` event is received, if the keycode is already tracked it is treated as a release (keyUp equivalent); otherwise, it is treated as a press (keyDown equivalent).
 
 ```typescript
 // shortcut-manager.ts
@@ -564,20 +564,20 @@ case "flagsChanged":
   break;
 ```
 
-### キーコードのプラットフォーム切り替え
+### Platform-Based Keycode Switching
 
-設定画面に表示するキー名も、保存・読み込みのキーコードも、すべてプラットフォーム固有の値です。`getKeyFromKeycode()`関数が実行時にプラットフォームを判定し、適切なマッピングテーブルを選択します。
+Key names displayed on the settings screen and keycodes used for saving/loading are all platform-specific values. The `getKeyFromKeycode()` function determines the platform at runtime and selects the appropriate mapping table.
 
 ```typescript
-// keycode-map.ts — 3プラットフォーム分のマッピングテーブルを保持
+// keycode-map.ts — Holds mapping tables for all 3 platforms
 const linuxEvdevToKey: Record<number, string> = {
   29: "Ctrl", 97: "RCtrl",
   42: "Shift", 54: "RShift",
   56: "Alt", 100: "RAlt",
-  125: "Cmd",  // Super/Meta left — Cmdと表記して統一
+  125: "Cmd",  // Super/Meta left — labeled as Cmd for consistency
   126: "RCmd",
   57: "Space", 28: "Enter",
-  // ...全130以上のキーに対応
+  // ...over 130 keys supported
 };
 
 export function getKeyFromKeycode(keycode: number): string | undefined {
@@ -590,48 +590,48 @@ export function getKeyFromKeycode(keycode: number): string | undefined {
 }
 ```
 
-### バリデーションの統一
+### Unified Validation
 
-ショートカットのバリデーション（OS予約済みショートカットとの衝突チェック、修飾キーの重複チェックなど）は`shortcut-validation.ts`に集約されています。Linux版では現時点でOS予約済みショートカットのチェックは省略されていますが（Linuxのデスクトップ環境ごとに予約されるショートカットが大きく異なるため）、その他のチェック（最大キー数、他のショートカットとの重複、修飾キーなしの英数字のみ禁止など）は全プラットフォーム共通で適用されます。
+Shortcut validation (checking for conflicts with OS-reserved shortcuts, checking for duplicate modifier keys, etc.) is consolidated in `shortcut-validation.ts`. The Linux version currently omits OS-reserved shortcut checks (because reserved shortcuts differ significantly across Linux desktop environments), but other checks (maximum key count, conflicts with other shortcuts, prohibiting alphanumeric-only shortcuts without modifiers, etc.) are applied uniformly across all platforms.
 
-### まとめ
+### Summary
 
-通常のElectronアプリでは、設定画面でのキーバインド変更はブラウザの`keydown`イベントを`addEventListener`で拾えば済みます。しかし本アプリでは以下の理由から、evdevという低レベルなキーイベントソースをそのまま設定画面にも利用する設計になっています。
+In a typical Electron app, changing key bindings in the settings screen can be done simply by capturing browser `keydown` events with `addEventListener`. However, in this app, the following reasons led to a design that uses evdev --- a low-level key event source --- directly in the settings screen as well.
 
-1. **キーコードの一貫性** --- ショートカットの実行時（バックグラウンド）と設定時（フォアグラウンド）で同じevdevキーコードを使わないと、保存したショートカットが正しく発火しない
-2. **修飾キー単独の検出** --- ブラウザの`keydown`では`Ctrl`単押しのようなイベントは不安定で、`keyup`のタイミングも信頼できない。evdevなら確実に検出できる
-3. **全プラットフォーム同一アーキテクチャ** --- macOS/Windows/Linuxすべてで「ネイティブヘルパー → ShortcutManager → tRPC Subscription → React UI」という同じパイプラインを通る。プラットフォーム分岐はヘルパーとキーコードマッピングに閉じ込め、UIコンポーネントのコードは完全に共通
+1. **Keycode consistency** --- If different keycodes are used for shortcut execution (background) and configuration (foreground), saved shortcuts will not fire correctly
+2. **Standalone modifier key detection** --- Browser `keydown` events are unreliable for detecting a solo `Ctrl` press, and `keyup` timing cannot be trusted. evdev provides reliable detection
+3. **Uniform architecture across all platforms** --- macOS/Windows/Linux all use the same pipeline: "native helper -> ShortcutManager -> tRPC Subscription -> React UI." Platform branching is confined to the helper and keycode mapping, and the UI component code is completely shared
 
 ---
 
-## まとめ
+## Summary
 
-Electron製アプリのLinux移植で遭遇した主な問題と対策をまとめます。
+Here is a summary of the main problems encountered and their solutions when porting an Electron app to Linux.
 
-| 領域 | 問題 | 対策 |
+| Area | Problem | Solution |
 |---|---|---|
-| クリップボード | `wl-copy`の非同期性によるレースコンディション | Electron clipboard APIで同期書き込み、ヘルパーはキーストロークのみ |
-| ペースト | `Ctrl+V`がターミナルで動かない | `Shift+Insert`を採用（GUI+ターミナル両対応） |
-| キー入力監視 | グローバルキーフック相当の仕組みがない | evdevデバイスの直接読み取り（`input`グループ必須） |
-| キーコード | OS間でキーコード体系が異なる | 3プラットフォーム分のマッピングテーブル |
-| ショートカット設定UI | ブラウザのkeydownでは修飾キー単独検出が不安定 | evdevイベントをtRPC Subscriptionで設定UIに直接配信 |
-| 通知音 | 統一的な音声再生APIがない | `gst-play-1.0`をdetachedプロセスで起動 |
-| システムミュート | 録音中のフィードバック防止 | `pactl`でデフォルトシンクをミュート/アンミュート |
-| ウィンドウ | カスタムタイトルバーが正常に描画されない | Linuxではデフォルトのウィンドウフレームを使用 |
-| ヘルパー | OS固有機能の実行 | TypeScript製LinuxHelper（JSON-RPC over stdin/stdout） |
-| 初期化順序 | OAuth認証とプロトコルハンドラの競合 | Linux限定で録音サービスの遅延初期化 |
-| アクティブウィンドウ | ウィンドウ情報の取得方法がOS依存 | GNOME D-Bus eval経由で取得 |
+| Clipboard | Race condition due to `wl-copy` asynchronous behavior | Synchronous write with Electron clipboard API; helper handles keystrokes only |
+| Paste | `Ctrl+V` does not work in terminals | Adopted `Shift+Insert` (works in both GUI and terminal) |
+| Key input monitoring | No equivalent to global key hooks | Direct reading of evdev devices (`input` group required) |
+| Keycodes | Different keycode systems across OSes | Mapping tables for all 3 platforms |
+| Shortcut settings UI | Unreliable standalone modifier key detection with browser keydown | Deliver evdev events to settings UI directly via tRPC Subscription |
+| Notification sounds | No unified audio playback API | Launch `gst-play-1.0` as a detached process |
+| System mute | Preventing feedback during recording | Mute/unmute default sink with `pactl` |
+| Windows | Custom title bar does not render correctly | Use default window frame on Linux |
+| Helper | Executing OS-specific functionality | TypeScript-based LinuxHelper (JSON-RPC over stdin/stdout) |
+| Initialization order | Conflict between OAuth and protocol handler | Deferred initialization of recording services (Linux only) |
+| Active window | OS-dependent method for retrieving window info | Retrieve via GNOME D-Bus eval |
 
-### 外部依存ツール
+### External Dependencies
 
-Linux版の動作には以下のツールが必要です：
+The Linux version requires the following tools:
 
-- **ydotool** --- キーストロークのシミュレーション
-- **wl-copy / wl-paste** --- Waylandクリップボード操作（フォールバック用）
-- **gst-play-1.0** --- MP3音声ファイルの再生
-- **pactl** --- PulseAudio/PipeWireのシンク制御
-- **gdbus** --- GNOME Shell D-Bus通信
+- **ydotool** --- Keystroke simulation
+- **wl-copy / wl-paste** --- Wayland clipboard operations (fallback)
+- **gst-play-1.0** --- MP3 audio file playback
+- **pactl** --- PulseAudio/PipeWire sink control
+- **gdbus** --- GNOME Shell D-Bus communication
 
-Electronは「Write once, run anywhere」と言われがちですが、OS固有機能に依存する部分ではプラットフォームごとの対応が欠かせません。特にLinuxでは、Wayland移行期ならではの課題（X11時代の`xdotool`は使えず`ydotool`が必要、クリップボードが`wl-copy`ベース、など）に直面しました。
+Electron is often described as "write once, run anywhere," but platform-specific adaptations are essential for features that depend on OS-specific functionality. On Linux in particular, we encountered challenges unique to the Wayland transition era (the X11-era `xdotool` cannot be used and `ydotool` is needed instead, the clipboard is `wl-copy`-based, etc.).
 
-本記事がElectronアプリのLinux対応を検討されている方の参考になれば幸いです。
+I hope this article serves as a useful reference for anyone considering Linux support for their Electron app.
