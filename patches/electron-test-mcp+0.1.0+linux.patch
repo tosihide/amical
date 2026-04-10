@@ -1,0 +1,16 @@
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -322,9 +322,11 @@
+                 }
+                 const appPath = args?.appPath || "./out/main/index.js";
+                 const env = args?.env || {};
++                const execPath = args?.executablePath || process.env.ELECTRON_PATH || "/_O/amical/node_modules/electron/dist/electron";
+                 electronApp = await _electron.launch({
+-                    args: ["--ozone-platform=x11", appPath],
+-                    env: { ...process.env, ...env, TEST_MODE: "true" },
++                    executablePath: execPath,
++                    args: ["--no-sandbox", "--ozone-platform=x11", appPath],
++                    env: { ...process.env, ...env, TEST_MODE: "true", ELECTRON_DISABLE_SANDBOX: "1" },
+                 });
+                 page = await electronApp.firstWindow();
+                 connectionMode = "electron";
