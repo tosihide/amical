@@ -13,9 +13,13 @@ protocol.registerSchemesAsPrivileged([
 
 import started from "electron-squirrel-startup";
 import { AppManager } from "./core/app-manager";
-import { isWindows } from "../utils/platform";
+import { isWindows, isLinux } from "../utils/platform";
 import { ServiceManager } from "./managers/service-manager";
 
+// Set WM class on Linux so GNOME Dock matches the amical.desktop file
+if (isLinux()) {
+  app.commandLine.appendSwitch("class", "amical");
+}
 
 // Setup renderer logging relay (allows renderer to send logs to main process)
 ipcMain.handle(

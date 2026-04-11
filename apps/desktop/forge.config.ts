@@ -597,6 +597,7 @@ const config: ForgeConfig = {
         recommends: ["wl-clipboard", "ydotool"],
         icon: "./assets/logo.png",
         mimeType: ["x-scheme-handler/amical"],
+        desktopTemplate: "./resources/desktop.ejs",
       },
     }),
     new MakerAppImage({
