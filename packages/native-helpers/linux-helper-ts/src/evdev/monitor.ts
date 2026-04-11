@@ -152,9 +152,10 @@ function monitorDevice(devicePath: string): void {
 export function startKeyboardMonitor(): void {
   const devices = scanKeyboardDevices();
   if (devices.length === 0) {
-    process.stderr.write(
-      "No readable keyboard devices found. Ensure user is in 'input' group.\n",
-    );
+    const groups = fs.readFileSync("/proc/self/status", "utf-8").match(/^Groups:\s*(.*)$/m)?.[1] ?? "";
+    const inputGid = fs.readFileSync("/etc/group", "utf-8").match(/^input:x:(\d+):/m)?.[1];
+    const hint = inputGid && !groups.split(/\s+/).includes(inputGid) ? " User is NOT in 'input' group. Run: sudo usermod -aG input $USER (then re-login)" : "";
+    process.stderr.write(`No readable keyboard devices found.${hint}\n`);
     return;
   }
 

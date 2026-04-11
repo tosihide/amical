@@ -30,6 +30,7 @@
 - [🔮 Overview](#-overview)
 - [✨ Features](#-features)
 - [🔰 Tech Stack](#-tech-stack)
+- [Linux Setup](#linux-setup)
 - [🤗 Contributing](#-contributing)
 - [🎗 License](#-license)
 
@@ -100,6 +101,22 @@ Context-aware dictation that adapts to what you're doing: drafting an email, cha
 - 🐞 [Jest](https://jestjs.io/)
 - 📚 [Fumadocs](https://github.com/fuma-nama/fumadocs)
 - 🌀 [Turborepo](https://turbo.build/)
+
+## Linux Setup
+
+Keyboard shortcut monitoring requires access to `/dev/input/event*` (evdev). Add your user to the `input` group and re-login:
+
+```bash
+sudo usermod -aG input $USER
+```
+
+Other dependencies:
+
+```bash
+sudo apt install wl-clipboard ydotool gstreamer1.0-plugins-good pulseaudio-utils
+```
+
+See [packages/native-helpers/linux-helper-ts/README.md](packages/native-helpers/linux-helper-ts/README.md) for details.
 
 ## 🤗 Contributing
 
