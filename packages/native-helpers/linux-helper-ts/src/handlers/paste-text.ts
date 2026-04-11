@@ -1,3 +1,6 @@
+// TODO: Add wtype as fallback for paste simulation when ydotool is unavailable.
+//       wtype can send keystrokes on Wayland without a daemon (ydotoold).
+//       Fallback order: ydotool → wtype
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 

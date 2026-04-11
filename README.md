@@ -112,6 +112,14 @@ Keyboard shortcut monitoring requires access to `/dev/input/event*` (evdev). Add
 sudo usermod -aG input $USER
 ```
 
+Paste simulation (`ydotool`) requires write access to `/dev/uinput`. Set up a udev rule and re-login:
+
+```bash
+echo 'KERNEL=="uinput", GROUP="input", MODE="0660"' | sudo tee /etc/udev/rules.d/80-uinput.rules
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+```
+
 Other dependencies:
 
 ```bash

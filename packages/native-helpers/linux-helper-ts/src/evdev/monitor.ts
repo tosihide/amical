@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { execSync } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
 import { writeEvent } from "../rpc/stdout-writer.js";
 import { getModifierFlags, isModifierKeyCode } from "./keycodes.js";
 
@@ -15,48 +15,110 @@ const pressedKeys = new Set<number>();
 // XKB remap table: evdev keycode → remapped evdev keycode
 const xkbRemapTable = new Map<number, number>();
 
+// evdev keycodes for keys involved in common remaps
+const CAPS = 58;
+const LCTRL = 29;
+
 /**
- * Load XKB key remapping from setxkbmap options.
- * evdev reads raw hardware keycodes, which don't reflect X11/Wayland-level
- * remapping (e.g., ctrl:swapcaps). We parse the active xkb options and
- * build a translation table so shortcuts work as the user expects.
+ * Parse XKB options array and rebuild the remap table.
+ */
+function applyXkbOptions(options: string[]): void {
+  xkbRemapTable.clear();
+
+  for (const opt of options) {
+    switch (opt) {
+      case "ctrl:swapcaps":
+        xkbRemapTable.set(CAPS, LCTRL);
+        xkbRemapTable.set(LCTRL, CAPS);
+        break;
+      case "ctrl:nocaps":
+      case "ctrl:ctrl_ac":
+        xkbRemapTable.set(CAPS, LCTRL);
+        break;
+      // Add more patterns as needed
+    }
+  }
+
+  if (xkbRemapTable.size > 0) {
+    const entries = Array.from(xkbRemapTable.entries())
+      .map(([from, to]) => `${from}->${to}`)
+      .join(", ");
+    process.stderr.write(`XKB remap loaded: ${entries}\n`);
+  } else {
+    process.stderr.write(`XKB remap cleared (no active remaps)\n`);
+  }
+}
+
+/**
+ * Read XKB options from gsettings (Wayland-native).
+ * Returns parsed option strings, e.g. ["ctrl:swapcaps"].
+ */
+function readGsettingsXkbOptions(): string[] {
+  try {
+    const raw = execSync("gsettings get org.gnome.desktop.input-sources xkb-options", {
+      encoding: "utf-8",
+      timeout: 3000,
+    }).trim();
+    // gsettings returns e.g. "['ctrl:swapcaps', 'compose:ralt']" or "@as []"
+    if (raw === "@as []" || raw === "[]") return [];
+    const match = raw.match(/\[(.+)\]/);
+    if (!match) return [];
+    return match[1].split(",").map((s) => s.trim().replace(/^'|'$/g, ""));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Load XKB key remapping from Wayland compositor settings.
+ * evdev reads raw hardware keycodes, which don't reflect Wayland-level
+ * remapping (e.g., ctrl:swapcaps). We read gsettings and build a
+ * translation table so shortcuts work as the user expects.
  */
 function loadXkbRemap(): void {
+  const options = readGsettingsXkbOptions();
+  applyXkbOptions(options);
+}
+
+/**
+ * Watch for XKB option changes via gsettings monitor.
+ * When the user changes keyboard remapping in Wayland settings,
+ * the remap table is rebuilt automatically.
+ */
+function watchXkbRemap(): void {
   try {
-    const output = execSync("setxkbmap -query", { encoding: "utf-8", timeout: 3000 });
-    const optionsLine = output.split("\n").find((l) => l.startsWith("options:"));
-    if (!optionsLine) return;
+    const proc = spawn("gsettings", ["monitor", "org.gnome.desktop.input-sources", "xkb-options"], {
+      stdio: ["ignore", "pipe", "ignore"],
+    });
 
-    const options = optionsLine.replace("options:", "").trim().split(",").map((o) => o.trim());
-
-    // evdev keycodes for keys involved in common remaps
-    const CAPS = 58;
-    const LCTRL = 29;
-
-    for (const opt of options) {
-      switch (opt) {
-        case "ctrl:swapcaps":
-          // Swap CapsLock ↔ Left Ctrl
-          xkbRemapTable.set(CAPS, LCTRL);
-          xkbRemapTable.set(LCTRL, CAPS);
-          break;
-        case "ctrl:nocaps":
-        case "ctrl:ctrl_ac":
-          // CapsLock acts as Ctrl (CapsLock key gone)
-          xkbRemapTable.set(CAPS, LCTRL);
-          break;
-        // Add more patterns as needed
+    let buffer = "";
+    proc.stdout.on("data", (chunk: Buffer) => {
+      buffer += chunk.toString();
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        // gsettings monitor emits: "xkb-options: ['ctrl:swapcaps']"
+        if (line.includes("xkb-options")) {
+          process.stderr.write(`XKB options changed, reloading remap\n`);
+          const options = readGsettingsXkbOptions();
+          applyXkbOptions(options);
+        }
       }
-    }
+    });
 
-    if (xkbRemapTable.size > 0) {
-      const entries = Array.from(xkbRemapTable.entries())
-        .map(([from, to]) => `${from}->${to}`)
-        .join(", ");
-      process.stderr.write(`XKB remap loaded: ${entries}\n`);
-    }
+    proc.on("error", (err) => {
+      process.stderr.write(`gsettings monitor failed: ${err.message}\n`);
+    });
+
+    proc.on("exit", (code) => {
+      process.stderr.write(`gsettings monitor exited (code=${code}), restarting in 10s\n`);
+      setTimeout(watchXkbRemap, 10000);
+    });
+
+    // Don't let the monitor prevent process exit
+    proc.unref();
   } catch (err) {
-    process.stderr.write(`Could not read xkb options: ${err}\n`);
+    process.stderr.write(`Could not start gsettings monitor: ${err}\n`);
   }
 }
 
@@ -207,6 +269,7 @@ function monitorDevice(devicePath: string): void {
 
 export function startKeyboardMonitor(): void {
   loadXkbRemap();
+  watchXkbRemap();
   const devices = scanKeyboardDevices();
   if (devices.length === 0) {
     const groups = fs.readFileSync("/proc/self/status", "utf-8").match(/^Groups:\s*(.*)$/m)?.[1] ?? "";
