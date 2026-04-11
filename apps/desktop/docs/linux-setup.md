@@ -134,9 +134,29 @@ Verifies:
 | Paste Last Transcript | Alt + Shift + V |
 | New Note | Alt + Shift + N |
 
+## XKB Key Remapping Support
+
+The Linux helper reads raw evdev keycodes, which bypass X11/Wayland-level key remapping. If you use `setxkbmap` options like `ctrl:swapcaps` (CapsLock ↔ Ctrl swap), the helper automatically detects this at startup and applies the remapping so that shortcuts work as expected.
+
+Supported xkb options:
+
+| Option | Effect |
+|--------|--------|
+| `ctrl:swapcaps` | CapsLock ↔ Left Ctrl swap |
+| `ctrl:nocaps` / `ctrl:ctrl_ac` | CapsLock acts as Ctrl |
+
+Verify your current xkb options:
+
+```bash
+setxkbmap -query | grep options
+```
+
+If you change xkb options while Amical is running, restart the app for the new mapping to take effect. The helper logs `XKB remap loaded: 58->29, 29->58` at startup when remapping is active.
+
 ## Known Limitations
 
 - **Electron sandbox**: Requires `ELECTRON_DISABLE_SANDBOX=1` or SUID setup for `chrome-sandbox`
 - **OAuth flow**: Uses BrowserWindow instead of system browser (workaround for custom scheme handling on Linux)
-- **Terminal paste**: `ydotool` simulates Ctrl+V which doesn't work in some terminals (use Ctrl+Shift+V)
-- **ydotool versions**: Both v0.1.x (`ctrl+v` format) and v1.x (`29:1 47:1` format) are supported
+- **Wayland required for paste**: The paste feature uses `wl-copy`/`wl-paste` (Wayland clipboard) and `ydotool`. On X11 sessions, paste will not work — log in with a Wayland session instead
+- **Terminal paste**: `ydotool` simulates Shift+Insert which works in most terminals, but some may need configuration
+- **ydotool versions**: Both v0.1.x (`shift+Insert` format) and v1.x (`42:1 110:1` format) are supported

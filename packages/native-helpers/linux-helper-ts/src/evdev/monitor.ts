@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { execSync } from "node:child_process";
 import { writeEvent } from "../rpc/stdout-writer.js";
 import { getModifierFlags, isModifierKeyCode } from "./keycodes.js";
 
@@ -10,6 +11,59 @@ const INPUT_EVENT_SIZE = 24;
 
 // Track pressed keys globally for modifier state
 const pressedKeys = new Set<number>();
+
+// XKB remap table: evdev keycode → remapped evdev keycode
+const xkbRemapTable = new Map<number, number>();
+
+/**
+ * Load XKB key remapping from setxkbmap options.
+ * evdev reads raw hardware keycodes, which don't reflect X11/Wayland-level
+ * remapping (e.g., ctrl:swapcaps). We parse the active xkb options and
+ * build a translation table so shortcuts work as the user expects.
+ */
+function loadXkbRemap(): void {
+  try {
+    const output = execSync("setxkbmap -query", { encoding: "utf-8", timeout: 3000 });
+    const optionsLine = output.split("\n").find((l) => l.startsWith("options:"));
+    if (!optionsLine) return;
+
+    const options = optionsLine.replace("options:", "").trim().split(",").map((o) => o.trim());
+
+    // evdev keycodes for keys involved in common remaps
+    const CAPS = 58;
+    const LCTRL = 29;
+
+    for (const opt of options) {
+      switch (opt) {
+        case "ctrl:swapcaps":
+          // Swap CapsLock ↔ Left Ctrl
+          xkbRemapTable.set(CAPS, LCTRL);
+          xkbRemapTable.set(LCTRL, CAPS);
+          break;
+        case "ctrl:nocaps":
+        case "ctrl:ctrl_ac":
+          // CapsLock acts as Ctrl (CapsLock key gone)
+          xkbRemapTable.set(CAPS, LCTRL);
+          break;
+        // Add more patterns as needed
+      }
+    }
+
+    if (xkbRemapTable.size > 0) {
+      const entries = Array.from(xkbRemapTable.entries())
+        .map(([from, to]) => `${from}->${to}`)
+        .join(", ");
+      process.stderr.write(`XKB remap loaded: ${entries}\n`);
+    }
+  } catch (err) {
+    process.stderr.write(`Could not read xkb options: ${err}\n`);
+  }
+}
+
+/** Apply XKB remapping to a raw evdev keycode */
+function remapKeyCode(code: number): number {
+  return xkbRemapTable.get(code) ?? code;
+}
 
 export function getPressedKeys(): Set<number> {
   return pressedKeys;
@@ -130,14 +184,16 @@ function monitorDevice(devicePath: string): void {
 
         const { code, value } = event;
 
+        const mappedCode = remapKeyCode(code);
+
         if (value === 1) {
-          pressedKeys.add(code);
-          emitKeyEvent(isModifierKeyCode(code) ? "flagsChanged" : "keyDown", code);
+          pressedKeys.add(mappedCode);
+          emitKeyEvent(isModifierKeyCode(mappedCode) ? "flagsChanged" : "keyDown", mappedCode);
         } else if (value === 0) {
-          pressedKeys.delete(code);
-          emitKeyEvent(isModifierKeyCode(code) ? "flagsChanged" : "keyUp", code);
+          pressedKeys.delete(mappedCode);
+          emitKeyEvent(isModifierKeyCode(mappedCode) ? "flagsChanged" : "keyUp", mappedCode);
         } else if (value === 2) {
-          emitKeyEvent("keyDown", code);
+          emitKeyEvent("keyDown", mappedCode);
         }
       }
 
@@ -150,6 +206,7 @@ function monitorDevice(devicePath: string): void {
 }
 
 export function startKeyboardMonitor(): void {
+  loadXkbRemap();
   const devices = scanKeyboardDevices();
   if (devices.length === 0) {
     const groups = fs.readFileSync("/proc/self/status", "utf-8").match(/^Groups:\s*(.*)$/m)?.[1] ?? "";

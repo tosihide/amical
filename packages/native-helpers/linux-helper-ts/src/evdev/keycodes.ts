@@ -8,6 +8,7 @@ export const KEY_LEFTALT = 56;
 export const KEY_RIGHTALT = 100;
 export const KEY_LEFTMETA = 125;
 export const KEY_RIGHTMETA = 126;
+export const KEY_RIGHTCTRL = 97;
 export const KEY_FN = 464;
 
 // Common keys
@@ -16,6 +17,7 @@ export const KEY_C = 46;
 
 const MODIFIER_KEYCODES = new Set([
   KEY_LEFTCTRL,
+  KEY_RIGHTCTRL,
   KEY_LEFTSHIFT,
   KEY_RIGHTSHIFT,
   KEY_LEFTALT,
@@ -36,7 +38,7 @@ export function getModifierFlags(pressedKeys: Set<number>): {
   metaKey: boolean;
 } {
   return {
-    ctrlKey: pressedKeys.has(KEY_LEFTCTRL) || pressedKeys.has(29 + 97), // KEY_RIGHTCTRL=97
+    ctrlKey: pressedKeys.has(KEY_LEFTCTRL) || pressedKeys.has(KEY_RIGHTCTRL),
     shiftKey: pressedKeys.has(KEY_LEFTSHIFT) || pressedKeys.has(KEY_RIGHTSHIFT),
     altKey: pressedKeys.has(KEY_LEFTALT) || pressedKeys.has(KEY_RIGHTALT),
     metaKey: pressedKeys.has(KEY_LEFTMETA) || pressedKeys.has(KEY_RIGHTMETA),
