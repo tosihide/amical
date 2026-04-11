@@ -104,6 +104,8 @@ Context-aware dictation that adapts to what you're doing: drafting an email, cha
 
 ## Linux Setup
 
+> **Note:** Linux support requires a **Wayland** session. X11 is not supported (clipboard and paste features depend on Wayland protocols).
+
 Keyboard shortcut monitoring requires access to `/dev/input/event*` (evdev). Add your user to the `input` group and re-login:
 
 ```bash
@@ -116,7 +118,7 @@ Other dependencies:
 sudo apt install wl-clipboard ydotool gstreamer1.0-plugins-good pulseaudio-utils
 ```
 
-See [packages/native-helpers/linux-helper-ts/README.md](packages/native-helpers/linux-helper-ts/README.md) for details.
+See [apps/desktop/docs/linux-setup.md](apps/desktop/docs/linux-setup.md) for full setup guide.
 
 ## 🤗 Contributing
 
