@@ -128,6 +128,25 @@ sudo apt install wl-clipboard ydotool gstreamer1.0-plugins-good pulseaudio-utils
 
 See [apps/desktop/docs/linux-setup.md](apps/desktop/docs/linux-setup.md) for full setup guide.
 
+### Running the development build (Linux)
+
+開発版バイナリの起動方法:
+
+```bash
+# 通常の開発起動
+cd apps/desktop && ELECTRON_DISABLE_SANDBOX=1 pnpm start
+
+# リモートデバッグ（Chrome DevTools Protocol 経由で接続したい場合）
+cd apps/desktop && ELECTRON_DISABLE_SANDBOX=1 pnpm start -- --remote-debugging-port=9222
+```
+
+Notes:
+
+- `ELECTRON_DISABLE_SANDBOX=1` は開発時のみ必要（`.deb` インストール後は SUID 設定済みで不要、AppImage は `--no-sandbox` 自動付与）。
+- パッケージビルドは `cd apps/desktop && pnpm make:linux`（`--targets` フラグは使わないこと。`forge.config.ts` の設定が無視されるため）。
+- 出力先: `apps/desktop/out/make/deb/x64/amical_<ver>_amd64.deb` / `apps/desktop/out/make/AppImage/x64/Amical-<ver>-x64.AppImage`
+- 詳細は [apps/desktop/docs/linux-deb-packaging.md](apps/desktop/docs/linux-deb-packaging.md)。
+
 ## 🤗 Contributing
 
 Contributions are welcome! Reach out to the team in our [Discord server](https://amical.ai/community) to learn more.
