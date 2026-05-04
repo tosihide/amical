@@ -22,7 +22,7 @@ corepack enable
 | Package | Ubuntu Package | Version | Purpose |
 |---------|---------------|---------|---------|
 | wl-clipboard | `wl-clipboard` | 2.0+ | Wayland clipboard (wl-copy/wl-paste) |
-| ydotool | `ydotool` | 0.1.8+ | Keyboard simulation for paste |
+| ydotool | `ydotool` | 1.0+ | Keyboard simulation for paste |
 | GStreamer good plugins | `gstreamer1.0-plugins-good` | 1.20+ | Notification sound playback (mp3) |
 | PulseAudio utils | `pulseaudio-utils` | 16.0+ | System audio mute control (pactl) |
 
@@ -159,4 +159,3 @@ If you change xkb options while Amical is running, restart the app for the new m
 - **OAuth flow**: Uses BrowserWindow instead of system browser (workaround for custom scheme handling on Linux)
 - **Wayland required for paste**: The paste feature uses `wl-copy`/`wl-paste` (Wayland clipboard) and `ydotool`. On X11 sessions, paste will not work — log in with a Wayland session instead
 - **Terminal paste**: `ydotool` simulates Shift+Insert which works in most terminals, but some may need configuration
-- **ydotool versions**: Both v0.1.x (`shift+Insert` format) and v1.x (`42:1 110:1` format) are supported
