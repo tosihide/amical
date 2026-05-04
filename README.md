@@ -130,22 +130,22 @@ See [apps/desktop/docs/linux-setup.md](apps/desktop/docs/linux-setup.md) for ful
 
 ### Running the development build (Linux)
 
-開発版バイナリの起動方法:
+How to launch the development build:
 
 ```bash
-# 通常の開発起動
+# Normal dev start
 cd apps/desktop && ELECTRON_DISABLE_SANDBOX=1 pnpm start
 
-# リモートデバッグ（Chrome DevTools Protocol 経由で接続したい場合）
+# Remote debugging (to attach via Chrome DevTools Protocol)
 cd apps/desktop && ELECTRON_DISABLE_SANDBOX=1 pnpm start -- --remote-debugging-port=9222
 ```
 
 Notes:
 
-- `ELECTRON_DISABLE_SANDBOX=1` は開発時のみ必要（`.deb` インストール後は SUID 設定済みで不要、AppImage は `--no-sandbox` 自動付与）。
-- パッケージビルドは `cd apps/desktop && pnpm make:linux`（`--targets` フラグは使わないこと。`forge.config.ts` の設定が無視されるため）。
-- 出力先: `apps/desktop/out/make/deb/x64/amical_<ver>_amd64.deb` / `apps/desktop/out/make/AppImage/x64/Amical-<ver>-x64.AppImage`
-- 詳細は [apps/desktop/docs/linux-deb-packaging.md](apps/desktop/docs/linux-deb-packaging.md)。
+- `ELECTRON_DISABLE_SANDBOX=1` is only needed during development (after `.deb` install it is SUID-configured and unnecessary; AppImage launches with `--no-sandbox` automatically).
+- Package build: `cd apps/desktop && pnpm make:linux` (do not use the `--targets` flag — it causes `forge.config.ts` settings to be ignored).
+- Output: `apps/desktop/out/make/deb/x64/amical_<ver>_amd64.deb` / `apps/desktop/out/make/AppImage/x64/Amical-<ver>-x64.AppImage`
+- See [apps/desktop/docs/linux-deb-packaging.md](apps/desktop/docs/linux-deb-packaging.md) for details.
 
 ## 🤗 Contributing
 
