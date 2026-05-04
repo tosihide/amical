@@ -593,7 +593,7 @@ const config: ForgeConfig = {
         genericName: "Dictation App",
         categories: ["Utility", "Audio"],
         description: "AI-powered dictation and note-taking",
-        depends: ["libgtk-3-0", "libnotify4", "libnss3", "libxss1", "libsecret-1-0"],
+        depends: ["libgtk-3-0t64", "libnotify4", "libnss3", "libxss1", "libsecret-1-0"],
         recommends: ["wl-clipboard", "ydotool"],
         icon: "./assets/logo.png",
         mimeType: ["x-scheme-handler/amical"],

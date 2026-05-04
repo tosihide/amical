@@ -1,6 +1,6 @@
 # Linux Development Setup
 
-Guide for building and running Amical Desktop on Linux (Ubuntu 24.04 LTS).
+Guide for building and running Amical Desktop on Linux (Ubuntu 26.04 LTS).
 
 ## Prerequisites
 
@@ -30,7 +30,7 @@ corepack enable
 
 | Package | Ubuntu Package | Purpose |
 |---------|---------------|---------|
-| libgtk-3 | `libgtk-3-0` | GTK windowing |
+| libgtk-3 | `libgtk-3-0t64` | GTK windowing |
 | libnss3 | `libnss3` | Chromium security |
 | libasound2 | `libasound2t64` | ALSA audio |
 | libgbm | `libgbm1` | GPU buffer management |
@@ -39,7 +39,7 @@ corepack enable
 
 | Package | Ubuntu Package | Purpose |
 |---------|---------------|---------|
-| PipeWire + PulseAudio compat | `pipewire-pulse` | Modern audio server (Ubuntu 24.04 default) |
+| PipeWire + PulseAudio compat | `pipewire-pulse` | Modern audio server (Ubuntu 26.04 default) |
 | PulseAudio | `pulseaudio` | Legacy audio server |
 
 ### Install all dependencies
@@ -50,7 +50,7 @@ sudo apt install \
   ydotool \
   gstreamer1.0-plugins-good \
   pulseaudio-utils \
-  libgtk-3-0 \
+  libgtk-3-0t64 \
   libnss3 \
   libasound2t64 \
   libgbm1

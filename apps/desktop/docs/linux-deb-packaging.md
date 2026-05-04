@@ -33,7 +33,7 @@ Two package formats are supported:
 
 ### 1.1 Prerequisites
 
-- Ubuntu 24.04 LTS (amd64)
+- Ubuntu 26.04 LTS (amd64)
 - Node.js v22.x
 - pnpm 10.x
 - Required system packages:
