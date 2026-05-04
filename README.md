@@ -106,24 +106,22 @@ Context-aware dictation that adapts to what you're doing: drafting an email, cha
 
 > **Note:** Linux support requires a **Wayland** session. X11 is not supported (clipboard and paste features depend on Wayland protocols).
 
+Install dependencies:
+
+```bash
+sudo apt install wl-clipboard ydotool gstreamer1.0-plugins-good pulseaudio-utils
+```
+
 Keyboard shortcut monitoring requires access to `/dev/input/event*` (evdev). Add your user to the `input` group and re-login:
 
 ```bash
 sudo usermod -aG input $USER
 ```
 
-Paste simulation (`ydotool`) requires write access to `/dev/uinput`. Set up a udev rule and re-login:
+The `ydotool` package ships a user-level systemd unit and a `/dev/uinput` udev rule for paste simulation. Enable the `ydotoold` daemon (after re-login):
 
 ```bash
-echo 'KERNEL=="uinput", GROUP="input", MODE="0660"' | sudo tee /etc/udev/rules.d/80-uinput.rules
-sudo udevadm control --reload-rules
-sudo udevadm trigger
-```
-
-Other dependencies:
-
-```bash
-sudo apt install wl-clipboard ydotool gstreamer1.0-plugins-good pulseaudio-utils
+systemctl --user enable --now ydotool
 ```
 
 See [apps/desktop/docs/linux-setup.md](apps/desktop/docs/linux-setup.md) for full setup guide.

@@ -64,6 +64,15 @@ sudo usermod -aG input $USER
 # Logout and login for group changes to take effect
 ```
 
+### ydotoold Daemon
+
+The `ydotool` package (1.0+) ships a user-level systemd unit and a `/dev/uinput` udev rule. After login (so the input group is in effect), enable the daemon:
+
+```bash
+systemctl --user enable --now ydotool
+systemctl --user status ydotool   # verify it is active
+```
+
 ## Environment Setup
 
 Copy `.env.example` and configure:
