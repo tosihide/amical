@@ -44,16 +44,11 @@ function runWlCopy(text: string, primary = false): Promise<void> {
  * unlike Ctrl+V (fails in terminals) or Ctrl+Shift+V (opens
  * Markdown preview in VS Code).
  *
- * Supports ydotool v0.1.x (key name format) and v1.x+ (keycode format).
+ * ydotool 1.x only accepts raw keycodes (42=SHIFT, 110=INSERT);
+ * name forms like "shift+Insert" are silently treated as delays.
  */
 async function simulatePaste(): Promise<void> {
-  try {
-    // Try v0.1.x format first (more common on Ubuntu 24.04)
-    await run("ydotool", ["key", "shift+Insert"]);
-  } catch {
-    // Fallback: try v1.x format (keycode 42=SHIFT, 110=INSERT)
-    await run("ydotool", ["key", "42:1", "110:1", "110:0", "42:0"]);
-  }
+  await run("ydotool", ["key", "42:1", "110:1", "110:0", "42:0"]);
 }
 
 export async function handlePasteText(
