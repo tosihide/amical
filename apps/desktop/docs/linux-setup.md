@@ -2,6 +2,11 @@
 
 Guide for building and running Amical Desktop on Linux (Ubuntu 24.04 LTS).
 
+> **Distribution packages: build on 24.04 to cover both 24.04 and 26.04.**
+> A `.deb`/AppImage built on 24.04 (glibc 2.39) runs on both releases via glibc
+> forward compatibility; one built on 26.04 will not start on 24.04. No separate
+> package per release is required.
+
 ## Prerequisites
 
 ### Node.js & pnpm

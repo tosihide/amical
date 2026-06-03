@@ -31,6 +31,14 @@ Two package formats are supported:
 
 ## 1. Build Procedure
 
+> **Build on Ubuntu 24.04 for both 24.04 and 26.04.**
+> A package built on 24.04 (glibc 2.39) runs on both 24.04 and 26.04 thanks to
+> glibc forward compatibility, so a single package covers both releases. A package
+> built on 26.04 links against a newer glibc and will **fail to start on 24.04**.
+> ydotool's v0.1.x (24.04) and v1.x (26.04) differences are already handled at
+> runtime in `linux-helper-ts/src/handlers/paste-text.ts`, so no separate package
+> is needed for the paste behavior.
+
 ### 1.1 Prerequisites
 
 - Ubuntu 24.04 LTS (amd64)

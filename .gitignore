@@ -57,3 +57,6 @@ AGENTS.md
 
 # Temp files
 /tmp
+
+# Local notes
+/NOTES_*.md
